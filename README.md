@@ -1,4 +1,4 @@
-# QMS Browser
+# Kiosk Browser
 
 A small Android browser intended for QMS dashboards, wall displays, tablets, and
 other single-site deployments. It uses Android System WebView, whose rendering
@@ -41,7 +41,7 @@ signing block in `app/build.gradle`, then run `./gradlew assembleRelease`.
 
 ## First use
 
-1. Launch **QMS Browser**.
+1. Launch **Kiosk Browser**.
 2. Open the menu and select **Settings**.
 3. Enter the QMS website URL.
 4. Choose whether to show the toolbar, use fullscreen, request desktop pages,

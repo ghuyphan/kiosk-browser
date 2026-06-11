@@ -29,7 +29,7 @@ public class SettingsActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setTitle("QMS Browser settings");
+        setTitle("Kiosk Browser settings");
         buildContent();
         loadPreferences();
     }

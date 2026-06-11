@@ -736,7 +736,7 @@ public class MainActivity extends Activity {
 
         @Override
         public void onReceivedTitle(WebView view, String title) {
-            setTitle(title == null || title.isEmpty() ? "QMS Browser" : title);
+            setTitle(title == null || title.isEmpty() ? "Kiosk Browser" : title);
         }
 
         @Override
