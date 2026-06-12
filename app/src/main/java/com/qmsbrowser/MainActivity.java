@@ -16,13 +16,17 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.provider.Settings;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.GeolocationPermissions;
@@ -55,16 +59,20 @@ public class MainActivity extends Activity {
     private static final int REQUEST_WEB_PERMISSIONS = 102;
     private static final int REQUEST_LOCATION = 103;
     private static final int REQUEST_DOWNLOAD = 104;
+    private static final long AUTO_HIDE_DELAY_MS = 2200;
 
     private FrameLayout root;
     private LinearLayout toolbar;
-    private TextView revealHandle;
+    private LinearLayout addressContainer;
     private ImageButton backButton;
     private ImageButton forwardButton;
+    private ImageButton reloadButton;
+    private ImageButton menuButton;
     private ImageView securityIcon;
-    private WebView webView;
+    private BrowserWebView webView;
     private EditText addressBar;
     private ProgressBar progressBar;
+    private TextView pullIndicator;
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest webPermissionRequest;
     private GeolocationPermissions.Callback geolocationCallback;
@@ -72,9 +80,17 @@ public class MainActivity extends Activity {
     private PendingDownload pendingDownload;
     private View customView;
     private WebChromeClient.CustomViewCallback customViewCallback;
-    private boolean toolbarTemporarilyRevealed;
-    private float edgeTouchStartY = -1;
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
+    private final Runnable hideToolbarRunnable = () -> hideToolbar(true);
+    private boolean autoHideToolbar = true;
+    private boolean toolbarVisible = true;
+    private boolean addressFocused;
+    private boolean pullArmed;
+    private boolean gestureStartedAtTop;
+    private float gestureStartY = -1;
     private String mobileUserAgent;
+    private String configuredStartUrl = BrowserPreferences.DEFAULT_START_URL;
+    private boolean fullscreenMode;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -94,14 +110,22 @@ public class MainActivity extends Activity {
         }
     }
 
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && fullscreenMode) {
+            applyFullscreenMode();
+        }
+    }
+
     private void buildBrowser() {
         root = new FrameLayout(this);
         root.setOnApplyWindowInsetsListener((view, insets) -> {
             view.setPadding(
                     0,
-                    insets.getSystemWindowInsetTop(),
+                    fullscreenMode ? 0 : insets.getSystemWindowInsetTop(),
                     0,
-                    insets.getSystemWindowInsetBottom()
+                    fullscreenMode ? 0 : insets.getSystemWindowInsetBottom()
             );
             return insets;
         });
@@ -126,7 +150,7 @@ public class MainActivity extends Activity {
                 dp(3)
         ));
 
-        webView = new WebView(this);
+        webView = new BrowserWebView(this);
         configureWebView();
         content.addView(webView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -134,16 +158,22 @@ public class MainActivity extends Activity {
                 1
         ));
 
-        revealHandle = new TextView(this);
-        revealHandle.setCompoundDrawablesWithIntrinsicBounds(0, 0, 0, R.drawable.ic_expand_more);
-        revealHandle.setGravity(Gravity.CENTER);
-        revealHandle.setBackgroundResource(R.drawable.bg_reveal_handle);
-        revealHandle.setElevation(dp(3));
-        revealHandle.setContentDescription("Reveal toolbar");
-        revealHandle.setOnClickListener(v -> revealToolbar());
-        FrameLayout.LayoutParams handleParams = new FrameLayout.LayoutParams(dp(48), dp(32));
-        handleParams.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        root.addView(revealHandle, handleParams);
+        pullIndicator = new TextView(this);
+        pullIndicator.setText("Pull to refresh");
+        pullIndicator.setTextSize(13);
+        pullIndicator.setTextColor(Color.rgb(60, 64, 67));
+        pullIndicator.setGravity(Gravity.CENTER);
+        pullIndicator.setBackgroundResource(R.drawable.bg_pull_indicator);
+        pullIndicator.setElevation(dp(6));
+        pullIndicator.setAlpha(0f);
+        pullIndicator.setVisibility(View.GONE);
+        FrameLayout.LayoutParams indicatorParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        indicatorParams.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+        indicatorParams.topMargin = dp(10);
+        root.addView(pullIndicator, indicatorParams);
 
         setContentView(root);
     }
@@ -152,7 +182,7 @@ public class MainActivity extends Activity {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(8), dp(8), dp(8), dp(8));
+        bar.setPadding(dp(6), dp(5), dp(6), dp(5));
         bar.setBackgroundColor(Color.WHITE);
         bar.setElevation(dp(3));
 
@@ -174,11 +204,14 @@ public class MainActivity extends Activity {
         });
         bar.addView(forwardButton);
 
-        ImageButton reload = toolbarButton(R.drawable.ic_refresh, "Reload");
-        reload.setOnClickListener(v -> webView.reload());
-        bar.addView(reload);
+        reloadButton = toolbarButton(R.drawable.ic_refresh, "Reload");
+        reloadButton.setOnClickListener(v -> {
+            webView.reload();
+            scheduleToolbarHide();
+        });
+        bar.addView(reloadButton);
 
-        LinearLayout addressContainer = new LinearLayout(this);
+        addressContainer = new LinearLayout(this);
         addressContainer.setOrientation(LinearLayout.HORIZONTAL);
         addressContainer.setGravity(Gravity.CENTER_VERTICAL);
         addressContainer.setPadding(dp(12), 0, dp(6), 0);
@@ -199,6 +232,7 @@ public class MainActivity extends Activity {
         addressBar.setBackgroundColor(Color.TRANSPARENT);
         addressBar.setPadding(dp(8), 0, dp(6), 0);
         addressBar.setImeOptions(EditorInfo.IME_ACTION_GO);
+        addressBar.setOnFocusChangeListener((view, focused) -> setAddressFocused(focused));
         addressBar.setOnEditorActionListener((view, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_GO) {
                 navigateFromAddressBar();
@@ -206,14 +240,14 @@ public class MainActivity extends Activity {
             }
             return false;
         });
-        addressContainer.addView(addressBar, new LinearLayout.LayoutParams(0, dp(48), 1));
-        LinearLayout.LayoutParams addressParams = new LinearLayout.LayoutParams(0, dp(48), 1);
+        addressContainer.addView(addressBar, new LinearLayout.LayoutParams(0, dp(42), 1));
+        LinearLayout.LayoutParams addressParams = new LinearLayout.LayoutParams(0, dp(42), 1);
         addressParams.setMargins(dp(4), 0, dp(4), 0);
         bar.addView(addressContainer, addressParams);
 
-        ImageButton menu = toolbarButton(R.drawable.ic_more_vert, "Menu");
-        menu.setOnClickListener(this::showMenu);
-        bar.addView(menu);
+        menuButton = toolbarButton(R.drawable.ic_more_vert, "Menu");
+        menuButton.setOnClickListener(this::showMenu);
+        bar.addView(menuButton);
         return bar;
     }
 
@@ -224,9 +258,31 @@ public class MainActivity extends Activity {
         button.setScaleType(ImageView.ScaleType.CENTER);
         button.setBackgroundResource(R.drawable.bg_icon_button);
         button.setContentDescription(description);
-        button.setPadding(dp(12), dp(12), dp(12), dp(12));
-        button.setLayoutParams(new LinearLayout.LayoutParams(dp(48), dp(48)));
+        button.setPadding(dp(10), dp(10), dp(10), dp(10));
+        button.setLayoutParams(new LinearLayout.LayoutParams(dp(40), dp(40)));
         return button;
+    }
+
+    private void setAddressFocused(boolean focused) {
+        addressFocused = focused;
+        backButton.setVisibility(focused ? View.GONE : View.VISIBLE);
+        forwardButton.setVisibility(focused ? View.GONE : View.VISIBLE);
+        reloadButton.setVisibility(focused ? View.GONE : View.VISIBLE);
+        menuButton.setVisibility(focused ? View.GONE : View.VISIBLE);
+        securityIcon.setVisibility(focused ? View.GONE : View.VISIBLE);
+
+        LinearLayout.LayoutParams params =
+                (LinearLayout.LayoutParams) addressContainer.getLayoutParams();
+        params.setMargins(focused ? 0 : dp(4), 0, focused ? 0 : dp(4), 0);
+        addressContainer.setLayoutParams(params);
+
+        if (focused) {
+            showToolbar(false);
+            uiHandler.removeCallbacks(hideToolbarRunnable);
+            addressBar.selectAll();
+        } else {
+            scheduleToolbarHide();
+        }
     }
 
     private void updateNavigationButtons() {
@@ -269,11 +325,22 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new BrowserClient());
         webView.setWebChromeClient(new BrowserChromeClient());
         webView.setDownloadListener(createDownloadListener());
+        webView.setOnHoverListener((view, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_HOVER_MOVE
+                    && event.getY() <= dp(24)) {
+                showToolbar(true);
+            }
+            return false;
+        });
     }
 
     private void navigateFromAddressBar() {
         webView.loadUrl(normalizeAddress(addressBar.getText().toString()));
         addressBar.clearFocus();
+        InputMethodManager keyboard =
+                (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        keyboard.hideSoftInputFromWindow(addressBar.getWindowToken(), 0);
+        scheduleToolbarHide();
     }
 
     public static String normalizeAddress(String input) {
@@ -298,7 +365,7 @@ public class MainActivity extends Activity {
         popup.getMenu().add(webView.getSettings().getUserAgentString().equals(mobileUserAgent)
                 ? "Desktop site"
                 : "Mobile site");
-        popup.getMenu().add("Hide toolbar");
+        popup.getMenu().add("Hide controls now");
         popup.getMenu().add("Settings");
         popup.setOnMenuItemClickListener(item -> {
             String title = item.getTitle().toString();
@@ -321,11 +388,8 @@ public class MainActivity extends Activity {
                 case "Mobile site":
                     setDesktopMode(false);
                     return true;
-                case "Hide toolbar":
-                    toolbarTemporarilyRevealed = false;
-                    toolbar.setVisibility(View.GONE);
-                    progressBar.setVisibility(View.GONE);
-                    revealHandle.setVisibility(View.VISIBLE);
+                case "Hide controls now":
+                    hideToolbar(true);
                     return true;
                 case "Settings":
                     startActivityForResult(new Intent(this, SettingsActivity.class), REQUEST_SETTINGS);
@@ -334,6 +398,8 @@ public class MainActivity extends Activity {
                     return false;
             }
         });
+        popup.setOnDismissListener(menu -> scheduleToolbarHide());
+        uiHandler.removeCallbacks(hideToolbarRunnable);
         popup.show();
     }
 
@@ -385,27 +451,30 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void applyPreferences(boolean reloadHome) {
+    private void applyPreferences(boolean fromSettings) {
         SharedPreferences preferences = BrowserPreferences.get(this);
-        boolean showToolbar = preferences.getBoolean(BrowserPreferences.SHOW_TOOLBAR, true);
+        String newStartUrl = preferences.getString(
+                BrowserPreferences.START_URL,
+                BrowserPreferences.DEFAULT_START_URL
+        );
+        boolean previousAutoHide = autoHideToolbar;
+        boolean previousDesktop = webView != null
+                && !webView.getSettings().getUserAgentString().equals(mobileUserAgent);
+        autoHideToolbar = preferences.getBoolean(
+                BrowserPreferences.AUTO_HIDE_TOOLBAR,
+                true
+        );
         boolean fullscreen = preferences.getBoolean(BrowserPreferences.FULLSCREEN, false);
         boolean keepAwake = preferences.getBoolean(BrowserPreferences.KEEP_SCREEN_ON, false);
         boolean desktop = preferences.getBoolean(BrowserPreferences.DESKTOP_MODE, false);
 
-        toolbarTemporarilyRevealed = false;
-        toolbar.setVisibility(showToolbar ? View.VISIBLE : View.GONE);
-        progressBar.setVisibility(showToolbar ? View.VISIBLE : View.GONE);
-        revealHandle.setVisibility(showToolbar ? View.GONE : View.VISIBLE);
-
-        if (fullscreen) {
-            getWindow().setFlags(
-                    WindowManager.LayoutParams.FLAG_FULLSCREEN,
-                    WindowManager.LayoutParams.FLAG_FULLSCREEN
-            );
+        fullscreenMode = fullscreen;
+        applyFullscreenMode();
+        if (fullscreenMode) {
+            root.setPadding(0, 0, 0, 0);
         } else {
-            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            root.requestApplyInsets();
         }
-        root.requestApplyInsets();
 
         if (keepAwake) {
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -414,39 +483,165 @@ public class MainActivity extends Activity {
         }
 
         applyDesktopMode(desktop);
-        if (reloadHome) {
-            webView.loadUrl(preferences.getString(
-                    BrowserPreferences.START_URL,
-                    BrowserPreferences.DEFAULT_START_URL
-            ));
-        }
-    }
+        showToolbar(false);
 
-    @Override
-    public boolean dispatchTouchEvent(MotionEvent event) {
-        if (toolbar.getVisibility() != View.VISIBLE) {
-            if (event.getActionMasked() == MotionEvent.ACTION_DOWN && event.getY() <= dp(64)) {
-                edgeTouchStartY = event.getY();
-            } else if (event.getActionMasked() == MotionEvent.ACTION_MOVE
-                    && edgeTouchStartY >= 0
-                    && event.getY() - edgeTouchStartY >= dp(72)) {
-                toolbarTemporarilyRevealed = true;
-                revealToolbar();
-                edgeTouchStartY = -1;
-                Toast.makeText(this, "Toolbar revealed", Toast.LENGTH_SHORT).show();
-            } else if (event.getActionMasked() == MotionEvent.ACTION_UP
-                    || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
-                edgeTouchStartY = -1;
+        if (fromSettings) {
+            if (!newStartUrl.equals(configuredStartUrl)) {
+                webView.loadUrl(newStartUrl);
+            } else if (desktop != previousDesktop) {
+                webView.reload();
             }
         }
-        return super.dispatchTouchEvent(event);
+        configuredStartUrl = newStartUrl;
+
+        if (autoHideToolbar) {
+            scheduleToolbarHide();
+        } else if (previousAutoHide) {
+            uiHandler.removeCallbacks(hideToolbarRunnable);
+        }
     }
 
-    private void revealToolbar() {
-        toolbarTemporarilyRevealed = true;
-        toolbar.setVisibility(View.VISIBLE);
-        progressBar.setVisibility(View.VISIBLE);
-        revealHandle.setVisibility(View.GONE);
+    private void handleWebTouch(MotionEvent event) {
+        float y = event.getRawY();
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                gestureStartY = y;
+                gestureStartedAtTop = !webView.canScrollVertically(-1);
+                pullArmed = false;
+                break;
+            case MotionEvent.ACTION_MOVE:
+                float totalDelta = y - gestureStartY;
+                if (totalDelta > dp(14) && !toolbarVisible) {
+                    showToolbar(false);
+                }
+                if (gestureStartedAtTop
+                        && !webView.canScrollVertically(-1)
+                        && totalDelta > dp(10)) {
+                    updatePullIndicator(totalDelta);
+                }
+                break;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                if (pullArmed && event.getActionMasked() == MotionEvent.ACTION_UP) {
+                    pullIndicator.setText("Refreshing…");
+                    webView.reload();
+                }
+                hidePullIndicator();
+                gestureStartedAtTop = false;
+                gestureStartY = -1;
+                pullArmed = false;
+                scheduleToolbarHide();
+                break;
+            default:
+                break;
+        }
+    }
+
+    private final class BrowserWebView extends WebView {
+        BrowserWebView(Context context) {
+            super(context);
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            handleWebTouch(event);
+            return super.onTouchEvent(event);
+        }
+    }
+
+    private void applyFullscreenMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                if (fullscreenMode) {
+                    controller.hide(
+                            WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars()
+                    );
+                    controller.setSystemBarsBehavior(
+                            WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    );
+                } else {
+                    controller.show(
+                            WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars()
+                    );
+                }
+            }
+        } else if (fullscreenMode) {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            );
+        } else {
+            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+        }
+    }
+
+    private void updatePullIndicator(float distance) {
+        float threshold = dp(92);
+        float progress = Math.min(1f, distance / threshold);
+        pullArmed = distance >= threshold;
+        pullIndicator.setText(pullArmed ? "Release to refresh" : "Pull to refresh");
+        pullIndicator.setVisibility(View.VISIBLE);
+        pullIndicator.setAlpha(progress);
+        pullIndicator.setTranslationY(Math.min(dp(34), distance * 0.25f));
+    }
+
+    private void hidePullIndicator() {
+        pullIndicator.animate()
+                .alpha(0f)
+                .translationY(0f)
+                .setDuration(160)
+                .withEndAction(() -> pullIndicator.setVisibility(View.GONE))
+                .start();
+    }
+
+    private void showToolbar(boolean scheduleHide) {
+        uiHandler.removeCallbacks(hideToolbarRunnable);
+        if (!toolbarVisible) {
+            toolbarVisible = true;
+            toolbar.setVisibility(View.VISIBLE);
+            toolbar.setAlpha(0f);
+            toolbar.setTranslationY(-dp(12));
+            toolbar.animate()
+                    .alpha(1f)
+                    .translationY(0f)
+                    .setDuration(170)
+                    .start();
+        }
+        if (scheduleHide) {
+            scheduleToolbarHide();
+        }
+    }
+
+    private void hideToolbar(boolean animate) {
+        uiHandler.removeCallbacks(hideToolbarRunnable);
+        if (!autoHideToolbar || !toolbarVisible || addressFocused || customView != null) {
+            return;
+        }
+        toolbarVisible = false;
+        progressBar.setVisibility(View.GONE);
+        if (animate) {
+            toolbar.animate()
+                    .alpha(0f)
+                    .translationY(-toolbar.getHeight())
+                    .setDuration(170)
+                    .withEndAction(() -> {
+                        if (!toolbarVisible) {
+                            toolbar.setVisibility(View.GONE);
+                        }
+                    })
+                    .start();
+        } else {
+            toolbar.setVisibility(View.GONE);
+        }
+    }
+
+    private void scheduleToolbarHide() {
+        uiHandler.removeCallbacks(hideToolbarRunnable);
+        if (autoHideToolbar && !addressFocused && customView == null) {
+            uiHandler.postDelayed(hideToolbarRunnable, AUTO_HIDE_DELAY_MS);
+        }
     }
 
     private DownloadListener createDownloadListener() {
@@ -603,13 +798,13 @@ public class MainActivity extends Activity {
     public void onBackPressed() {
         if (customView != null) {
             hideCustomView();
-        } else if (toolbarTemporarilyRevealed
-                && !BrowserPreferences.get(this)
-                .getBoolean(BrowserPreferences.SHOW_TOOLBAR, true)) {
-            toolbarTemporarilyRevealed = false;
-            toolbar.setVisibility(View.GONE);
-            progressBar.setVisibility(View.GONE);
-            revealHandle.setVisibility(View.VISIBLE);
+        } else if (addressFocused) {
+            addressBar.clearFocus();
+            InputMethodManager keyboard =
+                    (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            keyboard.hideSoftInputFromWindow(addressBar.getWindowToken(), 0);
+        } else if (toolbarVisible && autoHideToolbar) {
+            hideToolbar(true);
         } else if (webView.canGoBack()) {
             webView.goBack();
         } else {
@@ -619,6 +814,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        uiHandler.removeCallbacksAndMessages(null);
         if (webView != null) {
             webView.stopLoading();
             webView.setWebChromeClient(null);
@@ -638,16 +834,7 @@ public class MainActivity extends Activity {
             customViewCallback.onCustomViewHidden();
             customViewCallback = null;
         }
-        toolbar.setVisibility(
-                BrowserPreferences.get(this).getBoolean(BrowserPreferences.SHOW_TOOLBAR, true)
-                        ? View.VISIBLE
-                        : View.GONE
-        );
-        revealHandle.setVisibility(
-                BrowserPreferences.get(this).getBoolean(BrowserPreferences.SHOW_TOOLBAR, true)
-                        ? View.GONE
-                        : View.VISIBLE
-        );
+        showToolbar(true);
     }
 
     private int dp(int value) {
@@ -683,7 +870,9 @@ public class MainActivity extends Activity {
         @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
             updateAddressState(url);
-            progressBar.setVisibility(View.VISIBLE);
+            if (toolbarVisible) {
+                progressBar.setVisibility(View.VISIBLE);
+            }
         }
 
         @Override
@@ -695,6 +884,7 @@ public class MainActivity extends Activity {
         public void onPageFinished(WebView view, String url) {
             updateAddressState(url);
             progressBar.setVisibility(View.GONE);
+            scheduleToolbarHide();
         }
 
         @Override
@@ -731,7 +921,9 @@ public class MainActivity extends Activity {
         @Override
         public void onProgressChanged(WebView view, int newProgress) {
             progressBar.setProgress(newProgress);
-            progressBar.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
+            progressBar.setVisibility(
+                    newProgress >= 100 || !toolbarVisible ? View.GONE : View.VISIBLE
+            );
         }
 
         @Override
@@ -831,6 +1023,7 @@ public class MainActivity extends Activity {
             }
             customView = view;
             customViewCallback = callback;
+            toolbarVisible = false;
             toolbar.setVisibility(View.GONE);
             root.addView(view, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,

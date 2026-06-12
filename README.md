@@ -13,8 +13,8 @@ Download the latest installable APK from the
 
 - Configurable website that opens automatically at launch
 - Modern browser toolbar with vector icons and a rounded address field
-- Optional hidden navigation/URL toolbar and fullscreen mode
-- Tap the small top chevron or swipe down from the top edge to reveal a hidden toolbar
+- Auto-hiding navigation/URL toolbar and fullscreen mode
+- Pull down anywhere to reveal controls; at the top, pull farther to refresh
 - Back, forward, reload, home, share, find-in-page, and desktop-site controls
 - JavaScript, cookies, DOM storage, authenticated downloads, and file uploads
 - Camera, microphone, and location permission support for websites
@@ -44,13 +44,12 @@ signing block in `app/build.gradle`, then run `./gradlew assembleRelease`.
 1. Launch **Kiosk Browser**.
 2. Open the menu and select **Settings**.
 3. Enter the QMS website URL.
-4. Choose whether to show the toolbar, use fullscreen, request desktop pages,
+4. Choose whether to auto-hide the toolbar, use fullscreen, request desktop pages,
    or keep the screen awake.
-5. Tap **Save and open website**.
+5. Tap **Save settings**.
 
-When the toolbar is hidden, tap the small chevron at the top of the screen or
-swipe downward from the top edge. Use **Hide toolbar** in the menu to return to
-the clean display.
+When the toolbar is hidden, pull down anywhere on the page to reveal it. When
+the page is already at the top, pull farther and release to refresh.
 
 ## Compatibility and security
 
