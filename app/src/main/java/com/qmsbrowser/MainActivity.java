@@ -98,6 +98,7 @@ public class MainActivity extends Activity {
     private boolean toolbarVisible = true;
     private boolean addressFocused;
     private boolean pullArmed;
+    private boolean isRefreshing;
     private boolean gestureStartedAtTop;
     private float gestureStartY = -1;
     private String mobileUserAgent;
@@ -191,10 +192,7 @@ public class MainActivity extends Activity {
         progressBar.setMax(100);
         progressBar.setProgressTintList(ColorStateList.valueOf(Color.rgb(21, 94, 239))); // neon blue
         progressBar.setProgressBackgroundTintList(ColorStateList.valueOf(Color.rgb(45, 48, 86))); // dark track
-        content.addView(progressBar, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(3)
-        ));
+        progressBar.setVisibility(View.GONE);
 
         findBar = buildFindBar();
         content.addView(findBar, new LinearLayout.LayoutParams(
@@ -217,6 +215,13 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
         ));
+
+        FrameLayout.LayoutParams progressParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(3)
+        );
+        progressParams.gravity = Gravity.TOP;
+        webViewContainer.addView(progressBar, progressParams);
 
         pullIndicator = new FrameLayout(this);
         pullIndicator.setBackground(roundedBackground(Color.rgb(21, 23, 44), Color.rgb(45, 48, 86), 20));
@@ -903,11 +908,17 @@ public class MainActivity extends Activity {
         float y = event.getRawY();
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+                if (isRefreshing) {
+                    break;
+                }
                 gestureStartY = y;
                 gestureStartedAtTop = !webView.canScrollVertically(-1);
                 pullArmed = false;
                 break;
             case MotionEvent.ACTION_MOVE:
+                if (isRefreshing) {
+                    break;
+                }
                 float totalDelta = y - gestureStartY;
                 if (totalDelta > dp(14) && !toolbarVisible) {
                     showToolbar(false);
@@ -920,21 +931,30 @@ public class MainActivity extends Activity {
                 break;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
+                if (isRefreshing) {
+                    break;
+                }
                 if (pullArmed && event.getActionMasked() == MotionEvent.ACTION_UP) {
+                    isRefreshing = true;
+                    pullIndicator.setVisibility(View.VISIBLE);
+                    pullIndicator.setAlpha(1f);
+                    pullIndicator.setTranslationY(dp(44));
+
                     android.view.animation.RotateAnimation rotate = new android.view.animation.RotateAnimation(
                         0, 360,
                         android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f,
                         android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f
                     );
-                    rotate.setDuration(800);
+                    rotate.setDuration(1200);
                     rotate.setRepeatCount(android.view.animation.Animation.INFINITE);
                     rotate.setInterpolator(new android.view.animation.LinearInterpolator());
                     if (pullIndicatorIcon != null) {
                         pullIndicatorIcon.startAnimation(rotate);
                     }
                     webView.reload();
+                } else {
+                    hidePullIndicator();
                 }
-                hidePullIndicator();
                 gestureStartedAtTop = false;
                 gestureStartY = -1;
                 pullArmed = false;
@@ -1329,6 +1349,10 @@ public class MainActivity extends Activity {
             updateAddressState(url);
             progressBar.setVisibility(View.GONE);
             scheduleToolbarHide();
+            if (isRefreshing) {
+                hidePullIndicator();
+                isRefreshing = false;
+            }
         }
 
         @Override
@@ -1343,6 +1367,10 @@ public class MainActivity extends Activity {
                         "Page failed to load: " + error.getDescription(),
                         Toast.LENGTH_LONG
                 ).show();
+                if (isRefreshing) {
+                    hidePullIndicator();
+                    isRefreshing = false;
+                }
             }
         }
 
