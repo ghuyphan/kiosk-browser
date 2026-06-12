@@ -59,7 +59,9 @@ import android.widget.LinearLayout;
 import android.widget.PopupWindow;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Switch;
 import android.widget.Toast;
+import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -70,6 +72,7 @@ public class MainActivity extends Activity {
     private static final int REQUEST_WEB_PERMISSIONS = 102;
     private static final int REQUEST_LOCATION = 103;
     private static final int REQUEST_DOWNLOAD = 104;
+    private static final int REQUEST_SCAN_QR = 105;
     private static final long AUTO_HIDE_DELAY_MS = 2200;
 
     private FrameLayout root;
@@ -110,11 +113,27 @@ public class MainActivity extends Activity {
     private View findBarDivider;
     private EditText findInput;
     private TextView findStatus;
+    private RemoteControlClient remoteClient;
+    private String remoteControlTopic;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         setTheme(R.style.AppTheme);
         super.onCreate(savedInstanceState);
+        
+        SharedPreferences prefs = BrowserPreferences.get(this);
+        remoteControlTopic = prefs.getString("remote_control_topic", null);
+        if (remoteControlTopic == null) {
+            remoteControlTopic = "qms-kiosk-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+            prefs.edit().putString("remote_control_topic", remoteControlTopic).apply();
+        }
+        boolean remoteEnabled = prefs.getBoolean("remote_control_enabled", false);
+        if (remoteEnabled) {
+            remoteClient = new RemoteControlClient(remoteControlTopic, (action, value) -> {
+                runOnUiThread(() -> handleRemoteCommand(action, value));
+            });
+            remoteClient.start();
+        }
         
         // Apply dark theme colors to status and navigation bars
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
@@ -133,12 +152,7 @@ public class MainActivity extends Activity {
 
         buildBrowser();
         applyPreferences(false);
-        if (BrowserPreferences.get(this).getBoolean(
-                BrowserPreferences.TOOLBAR_HIDDEN,
-                false
-        )) {
-            hideToolbar(false);
-        }
+        showToolbar(false);
 
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
             Uri launchUri = getIntent().getData();
@@ -564,6 +578,7 @@ public class MainActivity extends Activity {
                 () -> hideToolbar(true),
                 popup
         );
+        addMenuRow(menu, R.drawable.ic_key, "Remote control", this::showRemoteControlDialog, popup);
         addMenuRow(menu, R.drawable.ic_settings, "Settings", () ->
                 startActivityForResult(
                         new Intent(this, SettingsActivity.class),
@@ -715,6 +730,9 @@ public class MainActivity extends Activity {
     }
 
     private boolean isAllowedKioskHost(Uri uri) {
+        if (uri != null && uri.getPath() != null && uri.getPath().endsWith("remote.html")) {
+            return true;
+        }
         if (!restrictToStartHost) {
             return true;
         }
@@ -1079,7 +1097,7 @@ public class MainActivity extends Activity {
     private void scheduleToolbarHide() {
         uiHandler.removeCallbacks(hideToolbarRunnable);
         if (!addressFocused && customView == null) {
-            uiHandler.postDelayed(hideToolbarRunnable, AUTO_HIDE_DELAY_MS);
+            // uiHandler.postDelayed(hideToolbarRunnable, AUTO_HIDE_DELAY_MS);
         }
     }
 
@@ -1224,6 +1242,19 @@ public class MainActivity extends Activity {
             }
             fileCallback.onReceiveValue(results);
             fileCallback = null;
+        } else if (requestCode == REQUEST_SCAN_QR) {
+            if (resultCode == RESULT_OK && data != null) {
+                String scanResult = data.getStringExtra("SCAN_RESULT");
+                if (scanResult == null) {
+                    scanResult = data.getDataString();
+                }
+                if (scanResult != null && (scanResult.startsWith("http://") || scanResult.startsWith("https://"))) {
+                    webView.loadUrl(scanResult);
+                    Toast.makeText(this, "Connecting to: " + scanResult, Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(this, "Invalid QR code URL", Toast.LENGTH_SHORT).show();
+                }
+            }
         }
     }
 
@@ -1256,6 +1287,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         uiHandler.removeCallbacksAndMessages(null);
+        if (remoteClient != null) {
+            remoteClient.stop();
+            remoteClient = null;
+        }
         if (webView != null) {
             webView.stopLoading();
             webView.setWebChromeClient(null);
@@ -1615,5 +1650,335 @@ public class MainActivity extends Activity {
             dialog.getWindow().setBackgroundDrawable(bg);
         }
         dialog.show();
+    }
+
+    private void showRemoteControlDialog() {
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(dp(24), dp(20), dp(24), dp(20));
+
+        // Header
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(0, 0, 0, dp(16));
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_key);
+        icon.setImageTintList(ColorStateList.valueOf(Color.rgb(21, 94, 239))); // neon blue
+        header.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
+
+        TextView title = new TextView(this);
+        title.setText("Remote Browser Control");
+        title.setTextSize(17);
+        title.setTextColor(Color.WHITE);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        title.setPadding(dp(12), 0, 0, 0);
+        header.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        container.addView(header, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // Description/Instructions
+        TextView description = new TextView(this);
+        description.setText("Control this browser from another device or act as a remote controller.");
+        description.setTextSize(13);
+        description.setTextColor(Color.rgb(142, 146, 178)); // gray 400
+        description.setPadding(0, 0, 0, dp(16));
+        container.addView(description, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // Switch container
+        LinearLayout switchContainer = new LinearLayout(this);
+        switchContainer.setOrientation(LinearLayout.HORIZONTAL);
+        switchContainer.setGravity(Gravity.CENTER_VERTICAL);
+        switchContainer.setPadding(dp(16), dp(12), dp(16), dp(12));
+        switchContainer.setBackground(roundedBackground(Color.rgb(21, 23, 44), Color.rgb(45, 48, 86), 12));
+
+        LinearLayout switchTextLayout = new LinearLayout(this);
+        switchTextLayout.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams switchTextParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        switchTextLayout.setLayoutParams(switchTextParams);
+
+        TextView switchTitle = new TextView(this);
+        switchTitle.setText("Remote Client Service");
+        switchTitle.setTextSize(14);
+        switchTitle.setTextColor(Color.WHITE);
+        switchTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+
+        TextView switchDesc = new TextView(this);
+        switchDesc.setText("Allow other devices to control this webview.");
+        switchDesc.setTextSize(11);
+        switchDesc.setTextColor(Color.rgb(142, 146, 178));
+
+        switchTextLayout.addView(switchTitle);
+        switchTextLayout.addView(switchDesc);
+        switchContainer.addView(switchTextLayout);
+
+        Switch remoteSwitch = new Switch(this);
+        remoteSwitch.setChecked(remoteClient != null && remoteClient.isRunning());
+        switchContainer.addView(remoteSwitch);
+
+        container.addView(switchContainer, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // Spacing
+        View spacing = new View(this);
+        container.addView(spacing, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(16)));
+
+        // QR Code and URL Container
+        final LinearLayout qrContainer = new LinearLayout(this);
+        qrContainer.setOrientation(LinearLayout.VERTICAL);
+        qrContainer.setGravity(Gravity.CENTER_HORIZONTAL);
+        qrContainer.setPadding(dp(16), dp(16), dp(16), dp(16));
+        qrContainer.setBackground(roundedBackground(Color.rgb(13, 14, 30), Color.rgb(45, 48, 86), 16));
+        qrContainer.setVisibility(remoteSwitch.isChecked() ? View.VISIBLE : View.GONE);
+
+        final ProgressBar qrProgress = new ProgressBar(this);
+        qrProgress.setIndeterminate(true);
+        qrProgress.setVisibility(View.GONE);
+        qrContainer.addView(qrProgress, new LinearLayout.LayoutParams(dp(48), dp(48)));
+
+        final ImageView qrImage = new ImageView(this);
+        qrImage.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        LinearLayout.LayoutParams qrParams = new LinearLayout.LayoutParams(dp(180), dp(180));
+        qrParams.bottomMargin = dp(12);
+        qrImage.setLayoutParams(qrParams);
+        qrImage.setVisibility(View.GONE);
+        qrContainer.addView(qrImage);
+
+        TextView urlTitle = new TextView(this);
+        urlTitle.setText("CONTROLLER URL (CLICK TO COPY)");
+        urlTitle.setTextSize(10);
+        urlTitle.setTextColor(Color.rgb(95, 100, 138));
+        urlTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        urlTitle.setPadding(0, 0, 0, dp(4));
+        qrContainer.addView(urlTitle);
+
+        TextView urlValue = new TextView(this);
+        final String controllerUrl = "https://raw.githack.com/ghuyphan/kiosk-browser/main/remote.html?topic=" + remoteControlTopic;
+        urlValue.setText(controllerUrl);
+        urlValue.setTextSize(12);
+        urlValue.setTextColor(Color.rgb(21, 94, 239)); // neon blue
+        urlValue.setGravity(Gravity.CENTER);
+        urlValue.setFocusable(true);
+        urlValue.setClickable(true);
+        urlValue.setOnClickListener(v -> {
+            android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            android.content.ClipData clip = android.content.ClipData.newPlainText("Controller URL", controllerUrl);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(clip);
+                Toast.makeText(MainActivity.this, "Copied URL to clipboard", Toast.LENGTH_SHORT).show();
+            }
+        });
+        qrContainer.addView(urlValue);
+
+        container.addView(qrContainer, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // Spacing before action button
+        View actionSpacing = new View(this);
+        container.addView(actionSpacing, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(16)));
+
+        // Scan button (to let this device control another device)
+        TextView scanBtn = new TextView(this);
+        scanBtn.setText("Scan QR Code to Control Another Device");
+        scanBtn.setGravity(Gravity.CENTER);
+        scanBtn.setTextColor(Color.WHITE);
+        scanBtn.setTextSize(14);
+        scanBtn.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        scanBtn.setPadding(0, dp(14), 0, dp(14));
+        
+        // Ripple effect & background
+        GradientDrawable normalBg = roundedBackground(Color.rgb(21, 94, 239), Color.rgb(21, 94, 239), 12);
+        RippleDrawable rippleDrawable = new RippleDrawable(
+                ColorStateList.valueOf(Color.argb(40, 255, 255, 255)),
+                normalBg,
+                null
+        );
+        scanBtn.setBackground(rippleDrawable);
+        scanBtn.setClickable(true);
+        scanBtn.setFocusable(true);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(container)
+                .create();
+
+        scanBtn.setOnClickListener(v -> {
+            dialog.dismiss();
+            startQrScanner();
+        });
+        container.addView(scanBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // Spacing before dismiss button
+        View closeSpacing = new View(this);
+        container.addView(closeSpacing, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(12)));
+
+        // Dismiss button
+        TextView closeBtn = new TextView(this);
+        closeBtn.setText("Dismiss");
+        closeBtn.setGravity(Gravity.CENTER);
+        closeBtn.setTextColor(Color.rgb(142, 146, 178)); // gray 400
+        closeBtn.setTextSize(14);
+        closeBtn.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        closeBtn.setPadding(0, dp(14), 0, dp(14));
+        closeBtn.setClickable(true);
+        closeBtn.setFocusable(true);
+        closeBtn.setBackground(roundedBackground(Color.rgb(21, 23, 44), Color.rgb(45, 48, 86), 12));
+        closeBtn.setOnClickListener(v -> dialog.dismiss());
+        container.addView(closeBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // Switch toggle behavior
+        remoteSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            SharedPreferences.Editor editor = BrowserPreferences.get(MainActivity.this).edit();
+            editor.putBoolean("remote_control_enabled", isChecked).apply();
+
+            if (isChecked) {
+                qrContainer.setVisibility(View.VISIBLE);
+                qrProgress.setVisibility(View.VISIBLE);
+                qrImage.setVisibility(View.GONE);
+
+                if (remoteClient == null) {
+                    remoteClient = new RemoteControlClient(remoteControlTopic, (action, value) -> {
+                        runOnUiThread(() -> handleRemoteCommand(action, value));
+                    });
+                }
+                remoteClient.start();
+                loadQrCode(controllerUrl, qrImage, qrProgress);
+            } else {
+                qrContainer.setVisibility(View.GONE);
+                if (remoteClient != null) {
+                    remoteClient.stop();
+                }
+            }
+        });
+
+        // If switch is already checked, fetch QR code on dialog load
+        if (remoteSwitch.isChecked()) {
+            qrProgress.setVisibility(View.VISIBLE);
+            loadQrCode(controllerUrl, qrImage, qrProgress);
+        }
+
+        if (dialog.getWindow() != null) {
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(Color.rgb(27, 29, 53)); // Midnight card background
+            bg.setCornerRadius(dp(18));
+            bg.setStroke(dp(1), Color.rgb(45, 48, 86));
+            dialog.getWindow().setBackgroundDrawable(bg);
+        }
+        dialog.show();
+    }
+
+    private void startQrScanner() {
+        Intent intent = new Intent("android.provider.action.SCAN_WITHOUT_CREDENTIALS");
+        try {
+            startActivityForResult(intent, REQUEST_SCAN_QR);
+        } catch (ActivityNotFoundException e) {
+            // Fallback to ZXing scan intent
+            Intent zxingIntent = new Intent("com.google.zxing.client.android.SCAN");
+            zxingIntent.putExtra("SCAN_MODE", "QR_CODE_MODE");
+            try {
+                startActivityForResult(zxingIntent, REQUEST_SCAN_QR);
+            } catch (ActivityNotFoundException ex) {
+                Toast.makeText(MainActivity.this, "No QR scanner found. Install a scanner app like ZXing.", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    private void loadQrCode(String url, ImageView imageView, ProgressBar progress) {
+        new Thread(() -> {
+            String[] qrProviders = new String[]{
+                "https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=%s",
+                "https://quickchart.io/qr?size=400&text=%s",
+                "https://image-charts.com/chart?cht=qr&chs=400x400&chl=%s"
+            };
+            Bitmap bitmap = null;
+            Exception lastException = null;
+
+            for (String provider : qrProviders) {
+                try {
+                    String encoded = java.net.URLEncoder.encode(url, "UTF-8");
+                    java.net.URL qrUrl = new java.net.URL(String.format(provider, encoded));
+                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) qrUrl.openConnection();
+                    conn.setConnectTimeout(5000);
+                    conn.setReadTimeout(5000);
+                    conn.setDoInput(true);
+                    conn.connect();
+                    if (conn.getResponseCode() == 200) {
+                        try (java.io.InputStream input = conn.getInputStream()) {
+                            bitmap = android.graphics.BitmapFactory.decodeStream(input);
+                            if (bitmap != null) {
+                                break;
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    lastException = e;
+                    Log.w("MainActivity", "Failed to load QR code from: " + provider, e);
+                }
+            }
+
+            final Bitmap finalBitmap = bitmap;
+            final Exception finalException = lastException;
+            uiHandler.post(() -> {
+                if (!isFinishing()) {
+                    progress.setVisibility(View.GONE);
+                    if (finalBitmap != null) {
+                        imageView.setImageBitmap(finalBitmap);
+                        imageView.setVisibility(View.VISIBLE);
+                    } else {
+                        Log.e("MainActivity", "Failed to load QR code from all providers", finalException);
+                        Toast.makeText(MainActivity.this, "Failed to load QR code. Please check your connection.", Toast.LENGTH_LONG).show();
+                    }
+                }
+            });
+        }).start();
+    }
+
+    private void handleRemoteCommand(String action, String value) {
+        if (webView == null || action == null) return;
+        Log.d("MainActivity", "handleRemoteCommand: action=" + action + ", value=" + value);
+        switch (action) {
+            case "back":
+                if (webView.canGoBack()) {
+                    webView.goBack();
+                }
+                break;
+            case "forward":
+                if (webView.canGoForward()) {
+                    webView.goForward();
+                }
+                break;
+            case "reload":
+                webView.reload();
+                break;
+            case "home":
+                webView.loadUrl(BrowserPreferences.get(this).getString(
+                        BrowserPreferences.START_URL,
+                        BrowserPreferences.DEFAULT_START_URL
+                ));
+                break;
+            case "url":
+                if (value != null && !value.isEmpty()) {
+                    webView.loadUrl(value);
+                }
+                break;
+            case "type":
+                if (value != null) {
+                    // Escape single quotes and backslashes in the typed text
+                    String escapedValue = value.replace("\\", "\\\\").replace("'", "\\'");
+                    String js = "var el = document.activeElement; " +
+                            "if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.contentEditable === 'true')) { " +
+                            "    if (el.contentEditable === 'true') { " +
+                            "        el.innerText = '" + escapedValue + "'; " +
+                            "    } else { " +
+                            "        el.value = '" + escapedValue + "'; " +
+                            "    } " +
+                            "    var evt = document.createEvent('HTMLEvents'); " +
+                            "    evt.initEvent('input', true, true); " +
+                            "    el.dispatchEvent(evt); " +
+                            "    var evt2 = document.createEvent('HTMLEvents'); " +
+                            "    evt2.initEvent('change', true, true); " +
+                            "    el.dispatchEvent(evt2); " +
+                            "}";
+                    webView.evaluateJavascript(js, null);
+                }
+                break;
+        }
     }
 }

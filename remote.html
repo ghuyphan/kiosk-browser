@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QMS Browser Remote Controller</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #101124;
+            color: #E5E7EB;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 24px 16px;
+        }
+        .container {
+            width: 100%;
+            max-width: 420px;
+            background: #15172C;
+            border: 1px solid #2D3056;
+            border-radius: 24px;
+            padding: 24px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+        }
+        header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        h1 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #FFFFFF;
+            margin-bottom: 4px;
+        }
+        .status {
+            font-size: 13px;
+            color: #9CA3AF;
+        }
+        .session-badge {
+            display: inline-block;
+            background: #1F223F;
+            color: #158EEF;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-family: monospace;
+            font-size: 13px;
+            margin-top: 8px;
+            font-weight: 600;
+            border: 1px solid #2B2F5C;
+        }
+        .section-title {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #5F648A;
+            margin-bottom: 12px;
+        }
+        .control-group {
+            margin-bottom: 24px;
+        }
+        .nav-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+        .btn {
+            background: #1F223F;
+            border: 1px solid #2D3056;
+            color: #FFFFFF;
+            padding: 14px;
+            border-radius: 16px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .btn:active {
+            transform: scale(0.92);
+            background: #2D3056;
+        }
+        .btn svg {
+            width: 20px;
+            height: 20px;
+            fill: #9CA3AF;
+            transition: fill 0.2s;
+        }
+        .btn:active svg {
+            fill: #FFFFFF;
+        }
+        .btn-large {
+            grid-column: span 3;
+            background: linear-gradient(135deg, #155EEF 0%, #004EEB 100%);
+            border: none;
+            padding: 16px;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(21, 94, 239, 0.3);
+        }
+        .btn-large:active {
+            background: linear-gradient(135deg, #1049BC 0%, #003CB7 100%);
+            box-shadow: 0 2px 6px rgba(21, 94, 239, 0.2);
+        }
+        .input-group {
+            position: relative;
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .text-input {
+            flex: 1;
+            background: #0D0E1E;
+            border: 1px solid #2D3056;
+            border-radius: 16px;
+            color: #FFFFFF;
+            padding: 14px 16px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .text-input:focus {
+            border-color: #155EEF;
+        }
+        .btn-action {
+            background: #155EEF;
+            border: none;
+            color: #FFFFFF;
+            padding: 0 20px;
+            border-radius: 16px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-action:active {
+            background: #1049BC;
+        }
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            background: #F43F5E;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 500;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.2s;
+            pointer-events: none;
+            box-shadow: 0 8px 24px rgba(244, 63, 94, 0.3);
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Remote Controller</h1>
+            <div class="status">Connecting to kiosk...</div>
+            <div id="badge" class="session-badge">No Session</div>
+        </header>
+
+        <div class="control-group">
+            <div class="section-title">Navigation</div>
+            <div class="nav-grid">
+                <button class="btn" onclick="sendCommand('back')">
+                    <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                    Back
+                </button>
+                <button class="btn" onclick="sendCommand('reload')">
+                    <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                    Reload
+                </button>
+                <button class="btn" onclick="sendCommand('forward')">
+                    <svg viewBox="0 0 24 24"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg>
+                    Forward
+                </button>
+                <button class="btn btn-large" onclick="sendCommand('home')">
+                    Home Website
+                </button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <div class="section-title">Navigate to URL</div>
+            <div class="input-group">
+                <input type="url" id="urlInput" class="text-input" placeholder="https://example.com" value="https://">
+                <button class="btn-action" onclick="sendUrl()">Go</button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <div class="section-title">Remote Keyboard Input</div>
+            <div class="input-group">
+                <input type="text" id="keyboardInput" class="text-input" placeholder="Type text to inject...">
+                <button class="btn-action" onclick="sendInput()">Type</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast">Command failed to send</div>
+
+    <script>
+        // Get session topic from URL query
+        const urlParams = new URLSearchParams(window.location.search);
+        const topic = urlParams.get('topic');
+        
+        if (topic) {
+            document.getElementById('badge').innerText = topic;
+            document.querySelector('.status').innerText = 'Ready to control';
+            document.querySelector('.status').style.color = '#10B981'; // green
+        } else {
+            document.querySelector('.status').innerText = 'Error: Missing topic parameter';
+            document.querySelector('.status').style.color = '#F43F5E'; // red
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.innerText = message;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 2000);
+        }
+
+        async function sendCommand(action, value = '') {
+            if (!topic) {
+                showToast('Error: No active control session');
+                return;
+            }
+            try {
+                const payload = { action, value };
+                const response = await fetch(`https://ntfy.sh/${topic}`, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) {
+                    throw new Error('Network response not ok');
+                }
+            } catch (e) {
+                showToast('Connection failed: Cannot send command');
+            }
+        }
+
+        function sendUrl() {
+            const input = document.getElementById('urlInput');
+            let url = input.value.trim();
+            if (!url) return;
+            if (!/^https?:\/\//i.test(url)) {
+                url = 'https://' + url;
+            }
+            sendCommand('url', url);
+        }
+
+        function sendInput() {
+            const input = document.getElementById('keyboardInput');
+            const text = input.value;
+            if (text === '') return;
+            sendCommand('type', text);
+            input.value = ''; // Clear after sending
+        }
+    </script>
+</body>
+</html>
