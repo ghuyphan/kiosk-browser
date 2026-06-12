@@ -39,6 +39,7 @@ public class SettingsActivity extends Activity {
     private CustomSwitch restrictToStartHost;
     private CustomSwitch blockExternalApps;
     private CustomSwitch preventScreenshots;
+    private CustomSwitch savePasswords;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -197,6 +198,10 @@ public class SettingsActivity extends Activity {
         kioskCard.addView(settingRow(R.drawable.ic_block, Color.rgb(234, 88, 12), "Block links to other apps", "Blocks links from opening external apps", blockExternalApps));
         kioskCard.addView(divider());
         kioskCard.addView(settingRow(R.drawable.ic_shield, Color.rgb(5, 150, 105), "Protect screen content", "Prevents screenshots and screen recordings", preventScreenshots));
+        kioskCard.addView(divider());
+        
+        savePasswords = new CustomSwitch(this, colorPink);
+        kioskCard.addView(settingRow(R.drawable.ic_key, Color.rgb(168, 85, 247), "Save passwords", "Allows saving login credentials for websites", savePasswords));
         form.addView(kioskCard, cardParams());
 
         // Card 4: Reset actions (Neon Red/Pink Accent)
@@ -557,6 +562,10 @@ public class SettingsActivity extends Activity {
                 BrowserPreferences.PREVENT_SCREENSHOTS,
                 false
         ));
+        savePasswords.setChecked(preferences.getBoolean(
+                BrowserPreferences.SAVE_PASSWORDS,
+                true
+        ));
     }
 
     private void savePreferences() {
@@ -583,6 +592,10 @@ public class SettingsActivity extends Activity {
                 .putBoolean(
                         BrowserPreferences.PREVENT_SCREENSHOTS,
                         preventScreenshots.isChecked()
+                )
+                .putBoolean(
+                        BrowserPreferences.SAVE_PASSWORDS,
+                        savePasswords.isChecked()
                 )
                 .apply();
 

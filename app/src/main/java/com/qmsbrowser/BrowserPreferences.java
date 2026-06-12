@@ -14,6 +14,7 @@ final class BrowserPreferences {
     static final String RESTRICT_TO_START_HOST = "restrict_to_start_host";
     static final String BLOCK_EXTERNAL_APPS = "block_external_apps";
     static final String PREVENT_SCREENSHOTS = "prevent_screenshots";
+    static final String SAVE_PASSWORDS = "save_passwords";
 
     static final String DEFAULT_START_URL = "https://www.google.com/";
 

@@ -105,6 +105,10 @@ public class MainActivity extends Activity {
     private boolean screenPinning;
     private boolean restrictToStartHost;
     private boolean blockExternalApps;
+    private LinearLayout findBar;
+    private View findBarDivider;
+    private EditText findInput;
+    private TextView findStatus;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -194,6 +198,20 @@ public class MainActivity extends Activity {
         content.addView(progressBar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(3)
+        ));
+
+        findBar = buildFindBar();
+        content.addView(findBar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        findBarDivider = new View(this);
+        findBarDivider.setBackgroundColor(Color.argb(20, 255, 255, 255));
+        findBarDivider.setVisibility(View.GONE);
+        content.addView(findBarDivider, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(1)
         ));
 
         FrameLayout webViewContainer = new FrameLayout(this);
@@ -446,6 +464,8 @@ public class MainActivity extends Activity {
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
+        settings.setAllowFileAccessFromFileURLs(false);
+        settings.setAllowUniversalAccessFromFileURLs(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         settings.setSupportMultipleWindows(true);
         settings.setJavaScriptCanOpenWindowsAutomatically(true);
@@ -456,6 +476,17 @@ public class MainActivity extends Activity {
 
         webView.setWebViewClient(new BrowserClient());
         webView.setWebChromeClient(new BrowserChromeClient());
+        webView.setFindListener((activeMatchIndex, numberOfMatches, isDoneCounting) -> {
+            if (findInput != null) {
+                if (findInput.getText().toString().isEmpty()) {
+                    findStatus.setText("");
+                } else if (numberOfMatches == 0) {
+                    findStatus.setText("0/0");
+                } else {
+                    findStatus.setText((activeMatchIndex + 1) + "/" + numberOfMatches);
+                }
+            }
+        });
         webView.setDownloadListener(createDownloadListener());
         webView.setOnHoverListener((view, event) -> {
             if (event.getActionMasked() == MotionEvent.ACTION_HOVER_MOVE
@@ -634,21 +665,131 @@ public class MainActivity extends Activity {
     }
 
     private void showFindDialog() {
-        EditText query = new EditText(this);
-        query.setSingleLine(true);
-        query.setHint("Text to find");
-        int padding = dp(20);
-        FrameLayout container = new FrameLayout(this);
-        container.setPadding(padding, 0, padding, 0);
-        container.addView(query);
+        if (findBar != null) {
+            findBar.setVisibility(View.VISIBLE);
+            findBarDivider.setVisibility(View.VISIBLE);
+            findInput.requestFocus();
+            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.showSoftInput(findInput, InputMethodManager.SHOW_IMPLICIT);
+            }
+        }
+    }
 
-        new AlertDialog.Builder(this)
-                .setTitle("Find in page")
-                .setView(container)
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Find", (dialog, which) ->
-                        webView.findAllAsync(query.getText().toString()))
-                .show();
+    private void hideFindBar() {
+        if (findBar != null) {
+            webView.clearMatches();
+            findInput.setText("");
+            findStatus.setText("");
+            findBar.setVisibility(View.GONE);
+            findBarDivider.setVisibility(View.GONE);
+            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.hideSoftInputFromWindow(findInput.getWindowToken(), 0);
+            }
+            webView.requestFocus();
+        }
+    }
+
+    private boolean isAllowedKioskHost(Uri uri) {
+        if (!restrictToStartHost) {
+            return true;
+        }
+        Uri startUri = Uri.parse(configuredStartUrl);
+        String allowedHost = startUri.getHost();
+        String requestedHost = uri.getHost();
+        if (allowedHost == null || requestedHost == null) {
+            return false;
+        }
+        return requestedHost.equalsIgnoreCase(allowedHost)
+                || requestedHost.toLowerCase().endsWith(
+                        "." + allowedHost.toLowerCase()
+                );
+    }
+
+    private LinearLayout buildFindBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(dp(12), dp(6), dp(12), dp(6));
+        bar.setBackgroundColor(Color.rgb(21, 23, 44));
+        bar.setVisibility(View.GONE);
+
+        ImageView searchIcon = new ImageView(this);
+        searchIcon.setImageResource(R.drawable.ic_search);
+        searchIcon.setImageTintList(ColorStateList.valueOf(Color.rgb(156, 163, 175)));
+        bar.addView(searchIcon, new LinearLayout.LayoutParams(dp(18), dp(18)));
+
+        findInput = new EditText(this);
+        findInput.setSingleLine(true);
+        findInput.setHint("Find in page...");
+        findInput.setHintTextColor(Color.rgb(95, 100, 138));
+        findInput.setTextColor(Color.WHITE);
+        findInput.setTextSize(14);
+        findInput.setPadding(dp(10), dp(8), dp(10), dp(8));
+        findInput.setBackground(null);
+        findInput.setImeOptions(EditorInfo.IME_ACTION_NEXT);
+        findInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+
+        LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        bar.addView(findInput, inputParams);
+
+        findStatus = new TextView(this);
+        findStatus.setTextSize(12);
+        findStatus.setTextColor(Color.rgb(142, 146, 178));
+        findStatus.setPadding(0, 0, dp(8), 0);
+        bar.addView(findStatus, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        ImageButton prevBtn = new ImageButton(this);
+        prevBtn.setImageResource(R.drawable.ic_chevron_up);
+        prevBtn.setImageTintList(ColorStateList.valueOf(Color.rgb(156, 163, 175)));
+        prevBtn.setBackground(getToolbarButtonBackground());
+        prevBtn.setPadding(dp(8), dp(8), dp(8), dp(8));
+        prevBtn.setScaleType(ImageView.ScaleType.CENTER);
+        prevBtn.setOnClickListener(v -> webView.findNext(false));
+        bar.addView(prevBtn, new LinearLayout.LayoutParams(dp(36), dp(36)));
+
+        ImageButton nextBtn = new ImageButton(this);
+        nextBtn.setImageResource(R.drawable.ic_chevron_down);
+        nextBtn.setImageTintList(ColorStateList.valueOf(Color.rgb(156, 163, 175)));
+        nextBtn.setBackground(getToolbarButtonBackground());
+        nextBtn.setPadding(dp(8), dp(8), dp(8), dp(8));
+        nextBtn.setScaleType(ImageView.ScaleType.CENTER);
+        nextBtn.setOnClickListener(v -> webView.findNext(true));
+        bar.addView(nextBtn, new LinearLayout.LayoutParams(dp(36), dp(36)));
+
+        ImageButton closeBtn = new ImageButton(this);
+        closeBtn.setImageResource(R.drawable.ic_close);
+        closeBtn.setImageTintList(ColorStateList.valueOf(Color.rgb(156, 163, 175)));
+        closeBtn.setBackground(getToolbarButtonBackground());
+        closeBtn.setPadding(dp(8), dp(8), dp(8), dp(8));
+        closeBtn.setScaleType(ImageView.ScaleType.CENTER);
+        closeBtn.setOnClickListener(v -> hideFindBar());
+        bar.addView(closeBtn, new LinearLayout.LayoutParams(dp(36), dp(36)));
+
+        findInput.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                String query = s.toString();
+                if (query.isEmpty()) {
+                    webView.clearMatches();
+                    findStatus.setText("");
+                } else {
+                    webView.findAllAsync(query);
+                }
+            }
+            @Override public void afterTextChanged(Editable s) {}
+        });
+
+        findInput.setOnEditorActionListener((v, actionId, event) -> {
+            webView.findNext(true);
+            return true;
+        });
+
+        return bar;
     }
 
     private void setDesktopMode(boolean enabled) {
@@ -720,6 +861,11 @@ public class MainActivity extends Activity {
 
         applyDesktopMode(desktop);
         showToolbar(false);
+
+        boolean savePasswords = preferences.getBoolean(BrowserPreferences.SAVE_PASSWORDS, true);
+        if (webView != null) {
+            webView.getSettings().setSavePassword(savePasswords);
+        }
 
         if (fromSettings) {
             if (!newStartUrl.equals(configuredStartUrl)) {
@@ -1055,6 +1201,8 @@ public class MainActivity extends Activity {
     public void onBackPressed() {
         if (customView != null) {
             hideCustomView();
+        } else if (findBar != null && findBar.getVisibility() == View.VISIBLE) {
+            hideFindBar();
         } else if (addressFocused) {
             addressBar.clearFocus();
             InputMethodManager keyboard =
@@ -1140,21 +1288,7 @@ public class MainActivity extends Activity {
             return true;
         }
 
-        private boolean isAllowedKioskHost(Uri uri) {
-            if (!restrictToStartHost) {
-                return true;
-            }
-            Uri startUri = Uri.parse(configuredStartUrl);
-            String allowedHost = startUri.getHost();
-            String requestedHost = uri.getHost();
-            if (allowedHost == null || requestedHost == null) {
-                return false;
-            }
-            return requestedHost.equalsIgnoreCase(allowedHost)
-                    || requestedHost.toLowerCase().endsWith(
-                            "." + allowedHost.toLowerCase()
-                    );
-        }
+
 
         @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
@@ -1279,20 +1413,46 @@ public class MainActivity extends Activity {
         ) {
             WebView popup = new WebView(MainActivity.this);
             popup.setWebViewClient(new WebViewClient() {
+                private boolean checkAndLoad(String url) {
+                    if (url == null || url.equals("about:blank")) {
+                        return false;
+                    }
+                    Uri uri = Uri.parse(url);
+                    if (!isAllowedKioskHost(uri)) {
+                        Toast.makeText(
+                                MainActivity.this,
+                                "Navigation is limited to the startup website",
+                                Toast.LENGTH_SHORT
+                        ).show();
+                        return false;
+                    }
+                    webView.loadUrl(url);
+                    return true;
+                }
+
                 @Override
                 public boolean shouldOverrideUrlLoading(
                         WebView popupView,
                         WebResourceRequest request
                 ) {
-                    webView.loadUrl(request.getUrl().toString());
+                    checkAndLoad(request.getUrl().toString());
+                    popupView.destroy();
+                    return true;
+                }
+
+                @Override
+                public boolean shouldOverrideUrlLoading(
+                        WebView popupView,
+                        String url
+                ) {
+                    checkAndLoad(url);
                     popupView.destroy();
                     return true;
                 }
 
                 @Override
                 public void onPageStarted(WebView popupView, String url, Bitmap favicon) {
-                    if (url != null && !url.equals("about:blank")) {
-                        webView.loadUrl(url);
+                    if (checkAndLoad(url)) {
                         popupView.stopLoading();
                         popupView.destroy();
                     }
