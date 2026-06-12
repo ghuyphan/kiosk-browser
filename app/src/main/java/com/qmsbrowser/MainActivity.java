@@ -1118,7 +1118,7 @@ public class MainActivity extends Activity {
     private void scheduleToolbarHide() {
         uiHandler.removeCallbacks(hideToolbarRunnable);
         if (!addressFocused && customView == null) {
-            // uiHandler.postDelayed(hideToolbarRunnable, AUTO_HIDE_DELAY_MS);
+            uiHandler.postDelayed(hideToolbarRunnable, AUTO_HIDE_DELAY_MS);
         }
     }
 
