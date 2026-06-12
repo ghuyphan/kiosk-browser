@@ -207,7 +207,7 @@ public class MainActivity extends Activity {
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setMax(100);
-        progressBar.setProgressTintList(ColorStateList.valueOf(Color.rgb(21, 94, 239))); // neon blue
+        progressBar.setProgressTintList(ColorStateList.valueOf(Color.rgb(124, 58, 237))); // Violet
         progressBar.setProgressBackgroundTintList(ColorStateList.valueOf(Color.rgb(45, 48, 86))); // dark track
         progressBar.setVisibility(View.GONE);
 
@@ -330,7 +330,7 @@ public class MainActivity extends Activity {
             }
             return false;
         });
-        LinearLayout.LayoutParams securityParams = new LinearLayout.LayoutParams(dp(16), dp(16));
+        LinearLayout.LayoutParams securityParams = new LinearLayout.LayoutParams(dp(20), dp(20));
         securityParams.rightMargin = dp(4);
         addressContainer.addView(securityIcon, securityParams);
 
@@ -347,7 +347,7 @@ public class MainActivity extends Activity {
         addressBar.setOnFocusChangeListener((view, focused) -> {
             setAddressFocused(focused);
             if (focused) {
-                addressContainer.setBackground(roundedBackground(Color.rgb(13, 14, 30), Color.rgb(21, 94, 239), 21)); // Blue focus border
+                addressContainer.setBackground(roundedBackground(Color.rgb(13, 14, 30), Color.rgb(124, 58, 237), 21)); // Violet focus border
             } else {
                 addressContainer.setBackground(roundedBackground(Color.rgb(13, 14, 30), Color.rgb(45, 48, 86), 21));
             }
@@ -1686,7 +1686,7 @@ public class MainActivity extends Activity {
 
         ImageView icon = new ImageView(this);
         icon.setImageResource(R.drawable.ic_key);
-        icon.setImageTintList(ColorStateList.valueOf(Color.rgb(21, 94, 239))); // neon blue
+        icon.setImageTintList(ColorStateList.valueOf(Color.rgb(124, 58, 237))); // Violet
         header.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
 
         TextView title = new TextView(this);
@@ -1735,6 +1735,22 @@ public class MainActivity extends Activity {
 
         Switch remoteSwitch = new Switch(this);
         remoteSwitch.setChecked(remoteClient != null && remoteClient.isRunning());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            int[][] states = new int[][] {
+                new int[] {-android.R.attr.state_checked},
+                new int[] {android.R.attr.state_checked}
+            };
+            int[] thumbColors = new int[] {
+                Color.rgb(156, 163, 175),
+                Color.WHITE
+            };
+            int[] trackColors = new int[] {
+                Color.rgb(39, 41, 61),
+                Color.rgb(124, 58, 237)
+            };
+            remoteSwitch.setThumbTintList(new ColorStateList(states, thumbColors));
+            remoteSwitch.setTrackTintList(new ColorStateList(states, trackColors));
+        }
         switchContainer.addView(remoteSwitch);
 
         container.addView(switchContainer, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -1776,7 +1792,7 @@ public class MainActivity extends Activity {
         final String controllerUrl = "https://raw.githack.com/ghuyphan/kiosk-browser/main/remote.html?topic=" + remoteControlTopic;
         urlValue.setText(controllerUrl);
         urlValue.setTextSize(12);
-        urlValue.setTextColor(Color.rgb(21, 94, 239)); // neon blue
+        urlValue.setTextColor(Color.rgb(124, 58, 237)); // Violet
         urlValue.setGravity(Gravity.CENTER);
         urlValue.setFocusable(true);
         urlValue.setClickable(true);
@@ -1806,7 +1822,7 @@ public class MainActivity extends Activity {
         scanBtn.setPadding(0, dp(14), 0, dp(14));
         
         // Ripple effect & background
-        GradientDrawable normalBg = roundedBackground(Color.rgb(21, 94, 239), Color.rgb(21, 94, 239), 12);
+        GradientDrawable normalBg = roundedBackground(Color.rgb(124, 58, 237), Color.rgb(124, 58, 237), 12);
         RippleDrawable rippleDrawable = new RippleDrawable(
                 ColorStateList.valueOf(Color.argb(40, 255, 255, 255)),
                 normalBg,

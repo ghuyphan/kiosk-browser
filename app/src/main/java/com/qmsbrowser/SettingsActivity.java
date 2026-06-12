@@ -89,10 +89,10 @@ public class SettingsActivity extends Activity {
         form.setClipToPadding(false);
         scroll.addView(form);
 
-        // Card 1: Startup website (Neon Blue Accent)
-        int colorBlue = Color.rgb(21, 94, 239);
+        // Card 1: Startup website (Accent Violet)
+        int colorViolet = Color.rgb(124, 58, 237);
         LinearLayout websiteCard = card();
-        websiteCard.addView(cardHeader(R.drawable.ic_globe, "Startup website", colorBlue));
+        websiteCard.addView(cardHeader(R.drawable.ic_globe, "Startup website", colorViolet));
         
         TextView urlLabel = new TextView(this);
         urlLabel.setText("Configure the default home and launch URL:");
@@ -111,7 +111,7 @@ public class SettingsActivity extends Activity {
         ImageView leftGlobe = new ImageView(this);
         leftGlobe.setImageResource(R.drawable.ic_globe);
         leftGlobe.setImageTintList(ColorStateList.valueOf(Color.rgb(156, 163, 175)));
-        urlInputContainer.addView(leftGlobe, new LinearLayout.LayoutParams(dp(18), dp(18)));
+        urlInputContainer.addView(leftGlobe, new LinearLayout.LayoutParams(dp(22), dp(22)));
 
         startUrl = new EditText(this);
         startUrl.setSingleLine(true);
@@ -148,8 +148,8 @@ public class SettingsActivity extends Activity {
         // Focus effect
         startUrl.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus) {
-                urlInputContainer.setBackground(roundedBackground(Color.rgb(12, 13, 26), colorBlue, 14));
-                leftGlobe.setImageTintList(ColorStateList.valueOf(colorBlue));
+                urlInputContainer.setBackground(roundedBackground(Color.rgb(12, 13, 26), colorViolet, 14));
+                leftGlobe.setImageTintList(ColorStateList.valueOf(colorViolet));
             } else {
                 urlInputContainer.setBackground(roundedBackground(Color.rgb(12, 13, 26), Color.rgb(39, 42, 78), 14));
                 leftGlobe.setImageTintList(ColorStateList.valueOf(Color.rgb(156, 163, 175)));
@@ -164,46 +164,44 @@ public class SettingsActivity extends Activity {
         websiteCard.addView(urlInputContainer, urlParams);
         form.addView(websiteCard, cardParams());
 
-        // Card 2: Display settings (Neon Purple Accent)
-        int colorPurple = Color.rgb(139, 92, 246);
+        // Card 2: Display settings (Accent Violet)
         LinearLayout browserCard = card();
-        browserCard.addView(cardHeader(R.drawable.ic_desktop, "Display settings", colorPurple));
+        browserCard.addView(cardHeader(R.drawable.ic_desktop, "Display settings", colorViolet));
         
-        fullscreen = new CustomSwitch(this, colorPurple);
-        desktopMode = new CustomSwitch(this, colorPurple);
-        keepScreenOn = new CustomSwitch(this, colorPurple);
+        fullscreen = new CustomSwitch(this, colorViolet);
+        desktopMode = new CustomSwitch(this, colorViolet);
+        keepScreenOn = new CustomSwitch(this, colorViolet);
         
-        browserCard.addView(settingRow(R.drawable.ic_fullscreen, colorPurple, "Fullscreen mode", "Hides the status bar and navigation bar", fullscreen));
+        browserCard.addView(settingRow(R.drawable.ic_fullscreen, colorViolet, "Fullscreen mode", "Hides the status bar and navigation bar", fullscreen));
         browserCard.addView(divider());
-        browserCard.addView(settingRow(R.drawable.ic_desktop, Color.rgb(79, 70, 229), "Request desktop websites", "Loads desktop version of web pages", desktopMode));
+        browserCard.addView(settingRow(R.drawable.ic_desktop, colorViolet, "Request desktop websites", "Loads desktop version of web pages", desktopMode));
         browserCard.addView(divider());
-        browserCard.addView(settingRow(R.drawable.ic_sun, Color.rgb(245, 158, 11), "Keep screen awake", "Prevents device screen from turning off", keepScreenOn));
+        browserCard.addView(settingRow(R.drawable.ic_sun, colorViolet, "Keep screen awake", "Prevents device screen from turning off", keepScreenOn));
         form.addView(browserCard, cardParams());
 
-        // Card 3: Kiosk controls (Neon Pink Accent)
-        int colorPink = Color.rgb(244, 63, 94);
+        // Card 3: Kiosk controls (Accent Violet)
         LinearLayout kioskCard = card();
-        kioskCard.addView(cardHeader(R.drawable.ic_lock, "Kiosk controls", colorPink));
+        kioskCard.addView(cardHeader(R.drawable.ic_lock, "Kiosk controls", colorViolet));
         
-        restrictToStartHost = new CustomSwitch(this, colorPink);
-        blockExternalApps = new CustomSwitch(this, colorPink);
-        preventScreenshots = new CustomSwitch(this, colorPink);
+        restrictToStartHost = new CustomSwitch(this, colorViolet);
+        blockExternalApps = new CustomSwitch(this, colorViolet);
+        preventScreenshots = new CustomSwitch(this, colorViolet);
         
-        kioskCard.addView(settingRow(R.drawable.ic_home_lock, Color.rgb(225, 29, 72), "Stay on startup website", "Restricts browsing to start domain only", restrictToStartHost));
+        kioskCard.addView(settingRow(R.drawable.ic_home_lock, colorViolet, "Stay on startup website", "Restricts browsing to start domain only", restrictToStartHost));
         kioskCard.addView(divider());
-        kioskCard.addView(settingRow(R.drawable.ic_block, Color.rgb(234, 88, 12), "Block links to other apps", "Blocks links from opening external apps", blockExternalApps));
+        kioskCard.addView(settingRow(R.drawable.ic_block, colorViolet, "Block links to other apps", "Blocks links from opening external apps", blockExternalApps));
         kioskCard.addView(divider());
-        kioskCard.addView(settingRow(R.drawable.ic_shield, Color.rgb(5, 150, 105), "Protect screen content", "Prevents screenshots and screen recordings", preventScreenshots));
+        kioskCard.addView(settingRow(R.drawable.ic_shield, colorViolet, "Protect screen content", "Prevents screenshots and screen recordings", preventScreenshots));
         kioskCard.addView(divider());
         
-        savePasswords = new CustomSwitch(this, colorPink);
-        kioskCard.addView(settingRow(R.drawable.ic_key, Color.rgb(168, 85, 247), "Save passwords", "Allows saving login credentials for websites", savePasswords));
+        savePasswords = new CustomSwitch(this, colorViolet);
+        kioskCard.addView(settingRow(R.drawable.ic_key, colorViolet, "Save passwords", "Allows saving login credentials for websites", savePasswords));
         form.addView(kioskCard, cardParams());
 
-        // Card 4: Reset actions (Neon Red/Pink Accent)
+        // Card 4: Reset actions (Accent Violet)
         LinearLayout actionCard = card();
-        actionCard.addView(cardHeader(R.drawable.ic_close, "Reset options", colorPink));
-        actionCard.addView(actionRow(R.drawable.ic_trash, Color.rgb(220, 38, 38), "Clear browser data", "Clears cache, history, cookies, and storage", () -> confirmClearData(), Color.rgb(244, 63, 94)));
+        actionCard.addView(cardHeader(R.drawable.ic_close, "Reset options", colorViolet));
+        actionCard.addView(actionRow(R.drawable.ic_trash, colorViolet, "Clear browser data", "Clears cache, history, cookies, and storage", () -> confirmClearData(), Color.rgb(229, 231, 235)));
         form.addView(actionCard, cardParams());
 
         // Sticky Bottom Bar
@@ -463,8 +461,8 @@ public class SettingsActivity extends Activity {
         Button button = new Button(this);
         int fill, stroke, ripple, textColor;
         if (primary) {
-            fill = Color.rgb(21, 94, 239);    // brand blue
-            stroke = Color.rgb(21, 94, 239);
+            fill = Color.rgb(124, 58, 237);    // brand violet
+            stroke = Color.rgb(124, 58, 237);
             ripple = Color.argb(40, 255, 255, 255);
             textColor = Color.WHITE;
         } else {
@@ -486,7 +484,7 @@ public class SettingsActivity extends Activity {
             // Gradient background for primary button
             GradientDrawable grad = new GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[] { Color.rgb(21, 94, 239), Color.rgb(47, 138, 245) }
+                new int[] { Color.rgb(124, 58, 237), Color.rgb(167, 139, 250) }
             );
             grad.setCornerRadius(dp(14));
             bgDrawable = grad;
@@ -607,11 +605,11 @@ public class SettingsActivity extends Activity {
 
         ImageView icon = new ImageView(this);
         icon.setImageResource(R.drawable.ic_trash);
-        icon.setImageTintList(ColorStateList.valueOf(Color.rgb(244, 63, 94)));
+        icon.setImageTintList(ColorStateList.valueOf(Color.rgb(124, 58, 237)));
         
         FrameLayout iconBadge = new FrameLayout(this);
         GradientDrawable badgeBg = new GradientDrawable();
-        badgeBg.setColor(Color.argb(30, 244, 63, 94));
+        badgeBg.setColor(Color.argb(30, 124, 58, 237));
         badgeBg.setCornerRadius(dp(12));
         iconBadge.setBackground(badgeBg);
         
@@ -663,7 +661,7 @@ public class SettingsActivity extends Activity {
         btnClear.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         
         GradientDrawable clearBg = new GradientDrawable();
-        clearBg.setColor(Color.rgb(244, 63, 94));
+        clearBg.setColor(Color.rgb(124, 58, 237));
         clearBg.setCornerRadius(dp(12));
         btnClear.setBackground(new RippleDrawable(
             ColorStateList.valueOf(Color.argb(40, 255, 255, 255)),
