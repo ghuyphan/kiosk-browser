@@ -156,7 +156,6 @@ public class MainActivity extends Activity {
 
         buildBrowser();
         applyPreferences(false);
-        showToolbar(false);
 
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
             Uri launchUri = getIntent().getData();
@@ -593,11 +592,24 @@ public class MainActivity extends Activity {
                 () -> setDesktopMode(mobile),
                 popup
         );
+        boolean toolbarHidden = BrowserPreferences.get(this).getBoolean(BrowserPreferences.TOOLBAR_HIDDEN, false);
         addMenuRow(
                 menu,
-                R.drawable.ic_visibility_off,
-                "Hide controls",
-                () -> hideToolbar(true),
+                toolbarHidden ? R.drawable.ic_visibility : R.drawable.ic_visibility_off,
+                toolbarHidden ? "Show controls" : "Hide controls",
+                () -> {
+                    if (toolbarHidden) {
+                        BrowserPreferences.get(this).edit()
+                                .putBoolean(BrowserPreferences.TOOLBAR_HIDDEN, false)
+                                .apply();
+                        showToolbar(true);
+                    } else {
+                        BrowserPreferences.get(this).edit()
+                                .putBoolean(BrowserPreferences.TOOLBAR_HIDDEN, true)
+                                .apply();
+                        hideToolbar(true);
+                    }
+                },
                 popup
         );
         addMenuRow(menu, R.drawable.ic_key, "Remote control", this::showRemoteControlDialog, popup);
@@ -922,7 +934,12 @@ public class MainActivity extends Activity {
         }
 
         applyDesktopMode(desktop);
-        showToolbar(false);
+        boolean toolbarHidden = preferences.getBoolean(BrowserPreferences.TOOLBAR_HIDDEN, false);
+        if (toolbarHidden) {
+            hideToolbar(false);
+        } else {
+            showToolbar(false);
+        }
 
         boolean savePasswords = preferences.getBoolean(BrowserPreferences.SAVE_PASSWORDS, true);
         if (webView != null) {
@@ -1099,9 +1116,6 @@ public class MainActivity extends Activity {
             return;
         }
         toolbarVisible = false;
-        BrowserPreferences.get(this).edit()
-                .putBoolean(BrowserPreferences.TOOLBAR_HIDDEN, true)
-                .apply();
         progressBar.setVisibility(View.GONE);
         if (animate) {
             toolbar.animate()
