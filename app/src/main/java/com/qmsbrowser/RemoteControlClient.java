@@ -6,27 +6,35 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.LinkedHashSet;
+import java.util.Set;
+
+import org.json.JSONObject;
 
 public class RemoteControlClient {
     private static final String TAG = "RemoteControlClient";
     private final String topic;
+    private final String secret;
     private final Callback callback;
+    private final Set<String> recentCommandIds = new LinkedHashSet<>();
     private Thread listenThread;
     private volatile boolean running;
+    private volatile HttpURLConnection activeConnection;
 
     public interface Callback {
         void onCommand(String action, String value);
     }
 
-    public RemoteControlClient(String topic, Callback callback) {
+    public RemoteControlClient(String topic, String secret, Callback callback) {
         this.topic = topic;
+        this.secret = secret;
         this.callback = callback;
     }
 
     public synchronized void start() {
         if (running) return;
         running = true;
-        Log.d(TAG, "Starting RemoteControlClient on topic: " + topic);
+        Log.d(TAG, "Starting authenticated remote-control client");
         listenThread = new Thread(this::listenLoop, "RemoteControlListenThread");
         listenThread.start();
     }
@@ -34,8 +42,18 @@ public class RemoteControlClient {
     public synchronized void stop() {
         if (!running) return;
         running = false;
-        if (listenThread != null) {
-            listenThread.interrupt();
+        HttpURLConnection connection = activeConnection;
+        if (connection != null) {
+            connection.disconnect();
+        }
+        Thread thread = listenThread;
+        if (thread != null) {
+            thread.interrupt();
+            try {
+                thread.join(2000);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+            }
             listenThread = null;
         }
     }
@@ -50,14 +68,15 @@ public class RemoteControlClient {
             try {
                 URL url = new URL("https://ntfy.sh/" + topic + "/json");
                 conn = (HttpURLConnection) url.openConnection();
+                activeConnection = conn;
                 conn.setRequestMethod("GET");
                 conn.setRequestProperty("Accept", "application/json");
-                conn.setReadTimeout(0); // Keep connection alive indefinitely
+                conn.setReadTimeout(30000);
                 conn.setConnectTimeout(10000);
 
                 int responseCode = conn.getResponseCode();
                 if (responseCode == 200) {
-                    Log.d(TAG, "Connection successful to ntfy.sh topic: " + topic);
+                    Log.d(TAG, "Remote-control connection established");
                     InputStream in = conn.getInputStream();
                     BufferedReader reader = new BufferedReader(new InputStreamReader(in));
                     String line;
@@ -79,6 +98,7 @@ public class RemoteControlClient {
                     }
                 }
             } finally {
+                activeConnection = null;
                 if (conn != null) {
                     conn.disconnect();
                 }
@@ -89,68 +109,49 @@ public class RemoteControlClient {
     private void parseAndDispatch(String line) {
         if (line == null || line.trim().isEmpty()) return;
         try {
-            // A simple JSON parser to extract the "message" field
-            // Line format from ntfy is: {"id":"...","time":...,"event":"message","topic":"...","message":"..."}
-            int msgIndex = line.indexOf("\"message\":\"");
-            if (msgIndex == -1) return;
-            int start = msgIndex + 11;
-            StringBuilder sb = new StringBuilder();
-            boolean escaped = false;
-            for (int i = start; i < line.length(); i++) {
-                char c = line.charAt(i);
-                if (escaped) {
-                    if (c == 'n') sb.append('\n');
-                    else if (c == 'r') sb.append('\r');
-                    else if (c == 't') sb.append('\t');
-                    else sb.append(c);
-                    escaped = false;
-                } else if (c == '\\') {
-                    escaped = true;
-                } else if (c == '"') {
-                    break;
-                } else {
-                    sb.append(c);
-                }
+            JSONObject event = new JSONObject(line);
+            if (!"message".equals(event.optString("event"))) {
+                return;
             }
-
-            String messagePayload = sb.toString();
-            Log.d(TAG, "Received message payload: " + messagePayload);
-            // messagePayload is a JSON string like: {"action":"back"} or {"action":"url","value":"..."}
-            String action = getJsonField(messagePayload, "action");
-            String value = getJsonField(messagePayload, "value");
-            if (action != null) {
+            JSONObject payload = new JSONObject(event.optString("message", "{}"));
+            String commandId = payload.optString("id");
+            long timestamp = payload.optLong("timestamp");
+            String action = payload.optString("action", null);
+            String value = payload.has("value") ? payload.optString("value", "") : "";
+            String signature = payload.optString("signature");
+            if (!RemoteCommandAuth.isFresh(timestamp, System.currentTimeMillis())
+                    || commandId.isEmpty()
+                    || action == null
+                    || !RemoteCommandAuth.verify(
+                            secret,
+                            commandId,
+                            timestamp,
+                            action,
+                            value,
+                            signature
+                    )
+                    || isReplay(commandId)) {
+                Log.w(TAG, "Ignoring remote command with invalid authentication");
+                return;
+            }
+            rememberCommand(commandId);
+            if (!action.isEmpty()) {
                 callback.onCommand(action, value);
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error parsing line: " + line, e);
+            Log.w(TAG, "Ignoring malformed remote-control event", e);
         }
     }
 
-    private String getJsonField(String json, String field) {
-        String key = "\"" + field + "\":\"";
-        int index = json.indexOf(key);
-        if (index == -1) {
-            return null;
+    private boolean isReplay(String commandId) {
+        return recentCommandIds.contains(commandId);
+    }
+
+    private void rememberCommand(String commandId) {
+        recentCommandIds.add(commandId);
+        if (recentCommandIds.size() > 100) {
+            String oldest = recentCommandIds.iterator().next();
+            recentCommandIds.remove(oldest);
         }
-        int start = index + key.length();
-        StringBuilder sb = new StringBuilder();
-        boolean escaped = false;
-        for (int i = start; i < json.length(); i++) {
-            char c = json.charAt(i);
-            if (escaped) {
-                if (c == 'n') sb.append('\n');
-                else if (c == 'r') sb.append('\r');
-                else if (c == 't') sb.append('\t');
-                else sb.append(c);
-                escaped = false;
-            } else if (c == '\\') {
-                escaped = true;
-            } else if (c == '"') {
-                break;
-            } else {
-                sb.append(c);
-            }
-        }
-        return sb.toString();
     }
 }

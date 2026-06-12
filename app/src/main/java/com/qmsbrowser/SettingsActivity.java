@@ -560,8 +560,8 @@ public class SettingsActivity extends Activity {
 
     private void savePreferences() {
         String normalizedUrl = MainActivity.normalizeAddress(startUrl.getText().toString());
-        if (!normalizedUrl.startsWith("http://") && !normalizedUrl.startsWith("https://")) {
-            startUrl.setError("Enter an HTTP or HTTPS website");
+        if (!SecurityPolicy.isAllowedWebUrl(normalizedUrl)) {
+            startUrl.setError("Enter an HTTPS website");
             return;
         }
 

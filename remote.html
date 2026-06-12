@@ -219,16 +219,17 @@
     <div id="toast" class="toast">Command failed to send</div>
 
     <script>
-        // Get session topic from URL query
-        const urlParams = new URLSearchParams(window.location.search);
-        const topic = urlParams.get('topic');
+        // Fragments are not sent to the page host or included in referrers.
+        const sessionParams = new URLSearchParams(window.location.hash.slice(1));
+        const topic = sessionParams.get('topic');
+        const secret = sessionParams.get('secret');
         
-        if (topic) {
-            document.getElementById('badge').innerText = topic;
+        if (topic && secret) {
+            document.getElementById('badge').innerText = 'Secure session';
             document.querySelector('.status').innerText = 'Ready to control';
             document.querySelector('.status').style.color = '#10B981'; // green
         } else {
-            document.querySelector('.status').innerText = 'Error: Missing topic parameter';
+            document.querySelector('.status').innerText = 'Error: Invalid session link';
             document.querySelector('.status').style.color = '#F43F5E'; // red
         }
 
@@ -241,13 +242,39 @@
             }, 2000);
         }
 
+        async function signCommand(id, timestamp, action, value) {
+            const key = await crypto.subtle.importKey(
+                'raw',
+                new TextEncoder().encode(secret),
+                { name: 'HMAC', hash: 'SHA-256' },
+                false,
+                ['sign']
+            );
+            const message = `${id}\n${timestamp}\n${action}\n${value}`;
+            const signature = await crypto.subtle.sign(
+                'HMAC',
+                key,
+                new TextEncoder().encode(message)
+            );
+            return Array.from(new Uint8Array(signature))
+                .map(byte => byte.toString(16).padStart(2, '0'))
+                .join('');
+        }
+
         async function sendCommand(action, value = '') {
-            if (!topic) {
+            if (!topic || !secret) {
                 showToast('Error: No active control session');
                 return;
             }
             try {
-                const payload = { action, value };
+                const id = crypto.randomUUID
+                    ? crypto.randomUUID()
+                    : Array.from(crypto.getRandomValues(new Uint8Array(16)))
+                        .map(byte => byte.toString(16).padStart(2, '0'))
+                        .join('');
+                const timestamp = Date.now();
+                const signature = await signCommand(id, timestamp, action, value);
+                const payload = { id, timestamp, action, value, signature };
                 const response = await fetch(`https://ntfy.sh/${topic}`, {
                     method: 'POST',
                     body: JSON.stringify(payload)
@@ -264,8 +291,12 @@
             const input = document.getElementById('urlInput');
             let url = input.value.trim();
             if (!url) return;
-            if (!/^https?:\/\//i.test(url)) {
+            if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) {
                 url = 'https://' + url;
+            }
+            if (!/^https:\/\//i.test(url)) {
+                showToast('Only HTTPS websites can be opened');
+                return;
             }
             sendCommand('url', url);
         }

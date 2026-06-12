@@ -2,6 +2,9 @@ package com.qmsbrowser;
 
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanner;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.MultiFormatWriter;
+import com.google.zxing.common.BitMatrix;
 
 import android.Manifest;
 import android.app.Activity;
@@ -68,6 +71,9 @@ import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.security.SecureRandom;
+
+import org.json.JSONObject;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_SETTINGS = 100;
@@ -119,6 +125,9 @@ public class MainActivity extends Activity {
     private TextView findStatus;
     private RemoteControlClient remoteClient;
     private String remoteControlTopic;
+    private String remoteControlSecret;
+    private String pendingWebPermissionOrigin;
+    private String[] pendingWebPermissionResources;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -127,15 +136,24 @@ public class MainActivity extends Activity {
         
         SharedPreferences prefs = BrowserPreferences.get(this);
         remoteControlTopic = prefs.getString("remote_control_topic", null);
-        if (remoteControlTopic == null) {
-            remoteControlTopic = "qms-kiosk-" + java.util.UUID.randomUUID().toString().substring(0, 8);
-            prefs.edit().putString("remote_control_topic", remoteControlTopic).apply();
+        remoteControlSecret = prefs.getString("remote_control_secret", null);
+        if (remoteControlTopic == null || remoteControlTopic.length() < 32
+                || remoteControlSecret == null || remoteControlSecret.length() < 43) {
+            remoteControlTopic = "qms-kiosk-" + randomToken(24);
+            remoteControlSecret = randomToken(32);
+            prefs.edit()
+                    .putString("remote_control_topic", remoteControlTopic)
+                    .putString("remote_control_secret", remoteControlSecret)
+                    .apply();
         }
         boolean remoteEnabled = prefs.getBoolean("remote_control_enabled", false);
         if (remoteEnabled) {
-            remoteClient = new RemoteControlClient(remoteControlTopic, (action, value) -> {
-                runOnUiThread(() -> handleRemoteCommand(action, value));
-            });
+            remoteClient = new RemoteControlClient(
+                    remoteControlTopic,
+                    remoteControlSecret,
+                    (action, value) ->
+                            runOnUiThread(() -> handleRemoteCommand(action, value))
+            );
             remoteClient.start();
         }
         
@@ -165,7 +183,7 @@ public class MainActivity extends Activity {
                             BrowserPreferences.START_URL,
                             BrowserPreferences.DEFAULT_START_URL
                     );
-            webView.loadUrl(startUrl);
+            navigateTo(startUrl, false);
         }
     }
 
@@ -488,13 +506,13 @@ public class MainActivity extends Activity {
         settings.setAllowContentAccess(true);
         settings.setAllowFileAccessFromFileURLs(false);
         settings.setAllowUniversalAccessFromFileURLs(false);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSupportMultipleWindows(true);
-        settings.setJavaScriptCanOpenWindowsAutomatically(true);
+        settings.setJavaScriptCanOpenWindowsAutomatically(false);
 
         mobileUserAgent = settings.getUserAgentString();
         CookieManager.getInstance().setAcceptCookie(true);
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false);
 
         webView.setWebViewClient(new BrowserClient());
         webView.setWebChromeClient(new BrowserChromeClient());
@@ -520,7 +538,7 @@ public class MainActivity extends Activity {
     }
 
     private void navigateFromAddressBar() {
-        webView.loadUrl(normalizeAddress(addressBar.getText().toString()));
+        navigateTo(normalizeAddress(addressBar.getText().toString()), true);
         addressBar.clearFocus();
         InputMethodManager keyboard =
                 (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
@@ -560,6 +578,48 @@ public class MainActivity extends Activity {
         return "https://www.google.com/search?q=" + Uri.encode(value);
     }
 
+    private static String randomToken(int byteCount) {
+        byte[] bytes = new byte[byteCount];
+        new SecureRandom().nextBytes(bytes);
+        return android.util.Base64.encodeToString(
+                bytes,
+                android.util.Base64.URL_SAFE
+                        | android.util.Base64.NO_PADDING
+                        | android.util.Base64.NO_WRAP
+        );
+    }
+
+    private boolean navigateTo(String url, boolean showError) {
+        Uri uri;
+        try {
+            uri = Uri.parse(url);
+        } catch (Exception error) {
+            uri = null;
+        }
+        if (uri == null || !SecurityPolicy.isAllowedWebUrl(uri.toString())) {
+            if (showError) {
+                Toast.makeText(
+                        this,
+                        "Only HTTPS websites can be opened",
+                        Toast.LENGTH_SHORT
+                ).show();
+            }
+            return false;
+        }
+        if (!isAllowedKioskHost(uri)) {
+            if (showError) {
+                Toast.makeText(
+                        this,
+                        "Navigation is limited to the startup website",
+                        Toast.LENGTH_SHORT
+                ).show();
+            }
+            return false;
+        }
+        webView.loadUrl(uri.toString());
+        return true;
+    }
+
     private void showMenu(View anchor) {
         LinearLayout menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
@@ -576,11 +636,12 @@ public class MainActivity extends Activity {
         popup.setElevation(dp(12));
         popup.setOutsideTouchable(true);
 
-        addMenuRow(menu, R.drawable.ic_home, "Home", () -> webView.loadUrl(
+        addMenuRow(menu, R.drawable.ic_home, "Home", () -> navigateTo(
                 BrowserPreferences.get(this).getString(
                         BrowserPreferences.START_URL,
                         BrowserPreferences.DEFAULT_START_URL
-                )
+                ),
+                true
         ), popup);
         addMenuRow(menu, R.drawable.ic_share, "Share page", this::shareCurrentPage, popup);
         addMenuRow(menu, R.drawable.ic_search, "Find in page", this::showFindDialog, popup);
@@ -764,22 +825,12 @@ public class MainActivity extends Activity {
     }
 
     private boolean isAllowedKioskHost(Uri uri) {
-        if (uri != null && uri.getPath() != null && uri.getPath().endsWith("remote.html")) {
-            return true;
-        }
-        if (!restrictToStartHost) {
-            return true;
-        }
         Uri startUri = Uri.parse(configuredStartUrl);
-        String allowedHost = startUri.getHost();
-        String requestedHost = uri.getHost();
-        if (allowedHost == null || requestedHost == null) {
-            return false;
-        }
-        return requestedHost.equalsIgnoreCase(allowedHost)
-                || requestedHost.toLowerCase().endsWith(
-                        "." + allowedHost.toLowerCase()
-                );
+        return SecurityPolicy.isAllowedKioskHost(
+                uri == null ? null : uri.getHost(),
+                startUri.getHost(),
+                restrictToStartHost
+        );
     }
 
     private LinearLayout buildFindBar() {
@@ -949,7 +1000,7 @@ public class MainActivity extends Activity {
 
         if (fromSettings) {
             if (!newStartUrl.equals(configuredStartUrl)) {
-                webView.loadUrl(newStartUrl);
+                navigateTo(newStartUrl, true);
             } else if (desktop != previousDesktop) {
                 webView.reload();
             }
@@ -1142,6 +1193,10 @@ public class MainActivity extends Activity {
 
     private DownloadListener createDownloadListener() {
         return (url, userAgent, contentDisposition, mimeType, contentLength) -> {
+            if (!SecurityPolicy.isAllowedWebUrl(url)) {
+                Toast.makeText(this, "Blocked an unsafe download URL", Toast.LENGTH_LONG).show();
+                return;
+            }
             PendingDownload download = new PendingDownload(
                     url, userAgent, contentDisposition, mimeType
             );
@@ -1188,25 +1243,75 @@ public class MainActivity extends Activity {
     }
 
     private void requestWebPermissions(PermissionRequest request) {
+        Uri origin = request.getOrigin();
+        if (!isAllowedPermissionOrigin(origin)) {
+            request.deny();
+            return;
+        }
         List<String> missing = new ArrayList<>();
+        List<String> supportedResources = new ArrayList<>();
         for (String resource : request.getResources()) {
-            if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)
-                    && checkSelfPermission(Manifest.permission.CAMERA)
-                    != PackageManager.PERMISSION_GRANTED) {
-                missing.add(Manifest.permission.CAMERA);
-            } else if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)
-                    && checkSelfPermission(Manifest.permission.RECORD_AUDIO)
-                    != PackageManager.PERMISSION_GRANTED) {
-                missing.add(Manifest.permission.RECORD_AUDIO);
+            if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) {
+                supportedResources.add(resource);
+                if (checkSelfPermission(Manifest.permission.CAMERA)
+                        != PackageManager.PERMISSION_GRANTED) {
+                    missing.add(Manifest.permission.CAMERA);
+                }
+            } else if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
+                supportedResources.add(resource);
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                        != PackageManager.PERMISSION_GRANTED) {
+                    missing.add(Manifest.permission.RECORD_AUDIO);
+                }
             }
         }
 
-        if (missing.isEmpty()) {
-            request.grant(request.getResources());
-        } else {
-            webPermissionRequest = request;
-            requestPermissions(missing.toArray(new String[0]), REQUEST_WEB_PERMISSIONS);
+        if (supportedResources.isEmpty()) {
+            request.deny();
+            return;
         }
+        String originLabel = origin.getScheme() + "://" + origin.getAuthority();
+        new AlertDialog.Builder(this)
+                .setTitle("Allow website access?")
+                .setMessage(originLabel + " wants to use "
+                        + describeWebResources(supportedResources) + ".")
+                .setNegativeButton("Block", (dialog, which) -> request.deny())
+                .setPositiveButton("Allow", (dialog, which) -> {
+                    if (missing.isEmpty()) {
+                        request.grant(supportedResources.toArray(new String[0]));
+                    } else {
+                        webPermissionRequest = request;
+                        pendingWebPermissionOrigin = originLabel;
+                        pendingWebPermissionResources = supportedResources.toArray(new String[0]);
+                        requestPermissions(
+                                missing.toArray(new String[0]),
+                                REQUEST_WEB_PERMISSIONS
+                        );
+                    }
+                })
+                .setOnCancelListener(dialog -> request.deny())
+                .show();
+    }
+
+    private boolean isAllowedPermissionOrigin(Uri origin) {
+        if (origin == null || origin.getHost() == null) {
+            return false;
+        }
+        String scheme = origin.getScheme();
+        if (!"https".equalsIgnoreCase(scheme) && !"http".equalsIgnoreCase(scheme)) {
+            return false;
+        }
+        Uri current = Uri.parse(webView.getUrl() == null ? "" : webView.getUrl());
+        return current.getAuthority() != null
+                && current.getAuthority().equalsIgnoreCase(origin.getAuthority())
+                && isAllowedKioskHost(origin);
+    }
+
+    private String describeWebResources(List<String> resources) {
+        boolean camera = resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE);
+        boolean microphone = resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE);
+        return camera && microphone ? "your camera and microphone"
+                : camera ? "your camera" : "your microphone";
     }
 
     private boolean allPermissionsGranted(int[] grantResults) {
@@ -1236,16 +1341,21 @@ public class MainActivity extends Activity {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_WEB_PERMISSIONS && webPermissionRequest != null) {
-            if (allPermissionsGranted(grantResults)) {
-                webPermissionRequest.grant(webPermissionRequest.getResources());
+            if (allPermissionsGranted(grantResults)
+                    && pendingWebPermissionOrigin != null
+                    && isAllowedPermissionOrigin(Uri.parse(pendingWebPermissionOrigin))) {
+                webPermissionRequest.grant(pendingWebPermissionResources);
             } else {
                 webPermissionRequest.deny();
             }
             webPermissionRequest = null;
+            pendingWebPermissionOrigin = null;
+            pendingWebPermissionResources = null;
         } else if (requestCode == REQUEST_LOCATION && geolocationCallback != null) {
             geolocationCallback.invoke(
                     geolocationOrigin,
-                    hasLocationPermission(),
+                    hasLocationPermission()
+                            && isAllowedPermissionOrigin(Uri.parse(geolocationOrigin)),
                     false
             );
             geolocationCallback = null;
@@ -1288,8 +1398,13 @@ public class MainActivity extends Activity {
                     scanResult = data.getDataString();
                 }
                 if (scanResult != null && (scanResult.startsWith("http://") || scanResult.startsWith("https://"))) {
-                    webView.loadUrl(scanResult);
-                    Toast.makeText(this, "Connecting to: " + scanResult, Toast.LENGTH_SHORT).show();
+                    if (navigateTo(scanResult, true)) {
+                        Toast.makeText(
+                                this,
+                                "Connecting to: " + scanResult,
+                                Toast.LENGTH_SHORT
+                        ).show();
+                    }
                 } else {
                     Toast.makeText(this, "Invalid QR code URL", Toast.LENGTH_SHORT).show();
                 }
@@ -1375,7 +1490,8 @@ public class MainActivity extends Activity {
         private boolean openExternalIfNeeded(Uri uri) {
             String scheme = uri.getScheme();
             if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
-                if (!isAllowedKioskHost(uri)) {
+                if (!SecurityPolicy.isAllowedWebUrl(uri.toString())
+                        || !isAllowedKioskHost(uri)) {
                     Toast.makeText(
                             MainActivity.this,
                             "Navigation is limited to the startup website",
@@ -1407,6 +1523,19 @@ public class MainActivity extends Activity {
 
         @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
+            Uri uri = Uri.parse(url);
+            if (("http".equalsIgnoreCase(uri.getScheme())
+                    || "https".equalsIgnoreCase(uri.getScheme()))
+                    && (!SecurityPolicy.isAllowedWebUrl(uri.toString())
+                    || !isAllowedKioskHost(uri))) {
+                view.stopLoading();
+                Toast.makeText(
+                        MainActivity.this,
+                        "Navigation is limited to the startup website",
+                        Toast.LENGTH_SHORT
+                ).show();
+                return;
+            }
             updateAddressState(url);
             if (toolbarVisible) {
                 progressBar.setVisibility(View.VISIBLE);
@@ -1508,23 +1637,46 @@ public class MainActivity extends Activity {
         }
 
         @Override
+        public void onPermissionRequestCanceled(PermissionRequest request) {
+            if (request == webPermissionRequest) {
+                webPermissionRequest = null;
+                pendingWebPermissionOrigin = null;
+                pendingWebPermissionResources = null;
+            }
+        }
+
+        @Override
         public void onGeolocationPermissionsShowPrompt(
                 String origin,
                 GeolocationPermissions.Callback callback
         ) {
-            if (hasLocationPermission()) {
-                callback.invoke(origin, true, false);
-            } else {
-                geolocationOrigin = origin;
-                geolocationCallback = callback;
-                requestPermissions(
-                        new String[]{
-                                Manifest.permission.ACCESS_COARSE_LOCATION,
-                                Manifest.permission.ACCESS_FINE_LOCATION
-                        },
-                        REQUEST_LOCATION
-                );
+            Uri originUri = Uri.parse(origin);
+            if (!isAllowedPermissionOrigin(originUri)) {
+                callback.invoke(origin, false, false);
+                return;
             }
+            new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("Allow location access?")
+                    .setMessage(origin + " wants to use this device's location.")
+                    .setNegativeButton("Block", (dialog, which) ->
+                            callback.invoke(origin, false, false))
+                    .setPositiveButton("Allow", (dialog, which) -> {
+                        if (hasLocationPermission()) {
+                            callback.invoke(origin, true, false);
+                        } else {
+                            geolocationOrigin = origin;
+                            geolocationCallback = callback;
+                            requestPermissions(
+                                    new String[]{
+                                            Manifest.permission.ACCESS_COARSE_LOCATION,
+                                            Manifest.permission.ACCESS_FINE_LOCATION
+                                    },
+                                    REQUEST_LOCATION
+                            );
+                        }
+                    })
+                    .setOnCancelListener(dialog -> callback.invoke(origin, false, false))
+                    .show();
         }
 
         @Override
@@ -1549,8 +1701,7 @@ public class MainActivity extends Activity {
                         ).show();
                         return false;
                     }
-                    webView.loadUrl(url);
-                    return true;
+                    return navigateTo(url, true);
                 }
 
                 @Override
@@ -1807,7 +1958,10 @@ public class MainActivity extends Activity {
         qrContainer.addView(urlTitle);
 
         TextView urlValue = new TextView(this);
-        final String controllerUrl = "https://raw.githack.com/ghuyphan/kiosk-browser/main/remote.html?topic=" + remoteControlTopic;
+        final String controllerUrl =
+                "https://raw.githack.com/ghuyphan/kiosk-browser/main/remote.html"
+                        + "#topic=" + Uri.encode(remoteControlTopic)
+                        + "&secret=" + Uri.encode(remoteControlSecret);
         urlValue.setText(controllerUrl);
         urlValue.setTextSize(12);
         urlValue.setTextColor(Color.rgb(124, 58, 237)); // Violet
@@ -1889,9 +2043,12 @@ public class MainActivity extends Activity {
                 qrImage.setVisibility(View.GONE);
 
                 if (remoteClient == null) {
-                    remoteClient = new RemoteControlClient(remoteControlTopic, (action, value) -> {
-                        runOnUiThread(() -> handleRemoteCommand(action, value));
-                    });
+                    remoteClient = new RemoteControlClient(
+                            remoteControlTopic,
+                            remoteControlSecret,
+                            (action, value) ->
+                                    runOnUiThread(() -> handleRemoteCommand(action, value))
+                    );
                 }
                 remoteClient.start();
                 loadQrCode(controllerUrl, qrImage, qrProgress);
@@ -1926,8 +2083,13 @@ public class MainActivity extends Activity {
                     .addOnSuccessListener(barcode -> {
                         String scanResult = barcode.getRawValue();
                         if (scanResult != null && (scanResult.startsWith("http://") || scanResult.startsWith("https://"))) {
-                            webView.loadUrl(scanResult);
-                            Toast.makeText(MainActivity.this, "Connecting to: " + scanResult, Toast.LENGTH_SHORT).show();
+                            if (navigateTo(scanResult, true)) {
+                                Toast.makeText(
+                                        MainActivity.this,
+                                        "Connecting to: " + scanResult,
+                                        Toast.LENGTH_SHORT
+                                ).show();
+                            }
                         } else {
                             Toast.makeText(MainActivity.this, "Invalid QR code URL", Toast.LENGTH_SHORT).show();
                         }
@@ -1961,39 +2123,28 @@ public class MainActivity extends Activity {
 
     private void loadQrCode(String url, ImageView imageView, ProgressBar progress) {
         new Thread(() -> {
-            String[] qrProviders = new String[]{
-                "https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=%s",
-                "https://quickchart.io/qr?size=400&text=%s",
-                "https://image-charts.com/chart?cht=qr&chs=400x400&chl=%s"
-            };
             Bitmap bitmap = null;
-            Exception lastException = null;
-
-            for (String provider : qrProviders) {
-                try {
-                    String encoded = java.net.URLEncoder.encode(url, "UTF-8");
-                    java.net.URL qrUrl = new java.net.URL(String.format(provider, encoded));
-                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) qrUrl.openConnection();
-                    conn.setConnectTimeout(5000);
-                    conn.setReadTimeout(5000);
-                    conn.setDoInput(true);
-                    conn.connect();
-                    if (conn.getResponseCode() == 200) {
-                        try (java.io.InputStream input = conn.getInputStream()) {
-                            bitmap = android.graphics.BitmapFactory.decodeStream(input);
-                            if (bitmap != null) {
-                                break;
-                            }
-                        }
+            Exception failure = null;
+            try {
+                int size = 400;
+                BitMatrix matrix = new MultiFormatWriter().encode(
+                        url,
+                        BarcodeFormat.QR_CODE,
+                        size,
+                        size
+                );
+                bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565);
+                for (int y = 0; y < size; y++) {
+                    for (int x = 0; x < size; x++) {
+                        bitmap.setPixel(x, y, matrix.get(x, y) ? Color.BLACK : Color.WHITE);
                     }
-                } catch (Exception e) {
-                    lastException = e;
-                    Log.w("MainActivity", "Failed to load QR code from: " + provider, e);
                 }
+            } catch (Exception error) {
+                failure = error;
             }
 
             final Bitmap finalBitmap = bitmap;
-            final Exception finalException = lastException;
+            final Exception finalException = failure;
             uiHandler.post(() -> {
                 if (!isFinishing()) {
                     progress.setVisibility(View.GONE);
@@ -2001,8 +2152,12 @@ public class MainActivity extends Activity {
                         imageView.setImageBitmap(finalBitmap);
                         imageView.setVisibility(View.VISIBLE);
                     } else {
-                        Log.e("MainActivity", "Failed to load QR code from all providers", finalException);
-                        Toast.makeText(MainActivity.this, "Failed to load QR code. Please check your connection.", Toast.LENGTH_LONG).show();
+                        Log.e("MainActivity", "Failed to generate QR code", finalException);
+                        Toast.makeText(
+                                MainActivity.this,
+                                "Failed to generate QR code",
+                                Toast.LENGTH_LONG
+                        ).show();
                     }
                 }
             });
@@ -2011,7 +2166,7 @@ public class MainActivity extends Activity {
 
     private void handleRemoteCommand(String action, String value) {
         if (webView == null || action == null) return;
-        Log.d("MainActivity", "handleRemoteCommand: action=" + action + ", value=" + value);
+        Log.d("MainActivity", "Handling authenticated remote command: " + action);
         switch (action) {
             case "back":
                 if (webView.canGoBack()) {
@@ -2027,26 +2182,25 @@ public class MainActivity extends Activity {
                 webView.reload();
                 break;
             case "home":
-                webView.loadUrl(BrowserPreferences.get(this).getString(
+                navigateTo(BrowserPreferences.get(this).getString(
                         BrowserPreferences.START_URL,
                         BrowserPreferences.DEFAULT_START_URL
-                ));
+                ), false);
                 break;
             case "url":
                 if (value != null && !value.isEmpty()) {
-                    webView.loadUrl(value);
+                    navigateTo(value, false);
                 }
                 break;
             case "type":
                 if (value != null) {
-                    // Escape single quotes and backslashes in the typed text
-                    String escapedValue = value.replace("\\", "\\\\").replace("'", "\\'");
+                    String escapedValue = JSONObject.quote(value);
                     String js = "var el = document.activeElement; " +
                             "if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.contentEditable === 'true')) { " +
                             "    if (el.contentEditable === 'true') { " +
-                            "        el.innerText = '" + escapedValue + "'; " +
+                            "        el.innerText = " + escapedValue + "; " +
                             "    } else { " +
-                            "        el.value = '" + escapedValue + "'; " +
+                            "        el.value = " + escapedValue + "; " +
                             "    } " +
                             "    var evt = document.createEvent('HTMLEvents'); " +
                             "    evt.initEvent('input', true, true); " +
