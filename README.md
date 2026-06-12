@@ -15,11 +15,14 @@ Download the latest installable APK from the
 - Modern browser toolbar with vector icons and a rounded address field
 - Navigation/URL toolbar that automatically hides without scrolling
 - Remembers the hidden toolbar state between app launches
+- Smooth expanding address field with a one-tap clear action
 - Pull down anywhere to reveal controls; at the top, pull farther to refresh
 - Back, forward, reload, home, share, find-in-page, and desktop-site controls
 - JavaScript, cookies, DOM storage, authenticated downloads, and file uploads
 - Camera, microphone, and location permission support for websites
 - HTTP support for private-LAN QMS installations
+- Optional Android screen pinning, startup-domain restriction, external-app
+  blocking, screenshot protection, fullscreen, and keep-awake controls
 - Android 6.0 (API 23) through current Android versions
 - No ads, analytics, accounts, or third-party runtime dependencies
 

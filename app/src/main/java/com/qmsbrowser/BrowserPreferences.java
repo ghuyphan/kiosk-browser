@@ -10,6 +10,10 @@ final class BrowserPreferences {
     static final String KEEP_SCREEN_ON = "keep_screen_on";
     static final String FULLSCREEN = "fullscreen";
     static final String TOOLBAR_HIDDEN = "toolbar_hidden";
+    static final String SCREEN_PINNING = "screen_pinning";
+    static final String RESTRICT_TO_START_HOST = "restrict_to_start_host";
+    static final String BLOCK_EXTERNAL_APPS = "block_external_apps";
+    static final String PREVENT_SCREENSHOTS = "prevent_screenshots";
 
     static final String DEFAULT_START_URL = "https://www.google.com/";
 

@@ -2,6 +2,7 @@ package com.qmsbrowser;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
@@ -18,6 +19,12 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.transition.ChangeBounds;
+import android.transition.Fade;
+import android.transition.TransitionManager;
+import android.transition.TransitionSet;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -45,7 +52,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.PopupMenu;
+import android.widget.PopupWindow;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -67,6 +74,7 @@ public class MainActivity extends Activity {
     private ImageButton backButton;
     private ImageButton forwardButton;
     private ImageButton reloadButton;
+    private ImageButton clearAddressButton;
     private ImageButton menuButton;
     private ImageView securityIcon;
     private BrowserWebView webView;
@@ -90,6 +98,9 @@ public class MainActivity extends Activity {
     private String mobileUserAgent;
     private String configuredStartUrl = BrowserPreferences.DEFAULT_START_URL;
     private boolean fullscreenMode;
+    private boolean screenPinning;
+    private boolean restrictToStartHost;
+    private boolean blockExternalApps;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -121,6 +132,12 @@ public class MainActivity extends Activity {
         if (hasFocus && fullscreenMode) {
             applyFullscreenMode();
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        applyScreenPinning();
     }
 
     private void buildBrowser() {
@@ -245,7 +262,33 @@ public class MainActivity extends Activity {
             }
             return false;
         });
+        addressBar.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence text, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence text, int start, int before, int count) {
+                updateClearAddressButton();
+            }
+
+            @Override
+            public void afterTextChanged(Editable editable) {
+            }
+        });
         addressContainer.addView(addressBar, new LinearLayout.LayoutParams(0, dp(42), 1));
+
+        clearAddressButton = toolbarButton(R.drawable.ic_close, "Clear address");
+        clearAddressButton.setVisibility(View.GONE);
+        clearAddressButton.setOnClickListener(v -> {
+            addressBar.setText("");
+            addressBar.requestFocus();
+        });
+        addressContainer.addView(
+                clearAddressButton,
+                new LinearLayout.LayoutParams(dp(36), dp(36))
+        );
+
         LinearLayout.LayoutParams addressParams = new LinearLayout.LayoutParams(0, dp(42), 1);
         addressParams.setMargins(dp(4), 0, dp(4), 0);
         bar.addView(addressContainer, addressParams);
@@ -270,11 +313,18 @@ public class MainActivity extends Activity {
 
     private void setAddressFocused(boolean focused) {
         addressFocused = focused;
+        TransitionSet transition = new TransitionSet()
+                .addTransition(new ChangeBounds())
+                .addTransition(new Fade())
+                .setOrdering(TransitionSet.ORDERING_TOGETHER)
+                .setDuration(180);
+        TransitionManager.beginDelayedTransition(toolbar, transition);
         backButton.setVisibility(focused ? View.GONE : View.VISIBLE);
         forwardButton.setVisibility(focused ? View.GONE : View.VISIBLE);
         reloadButton.setVisibility(focused ? View.GONE : View.VISIBLE);
         menuButton.setVisibility(focused ? View.GONE : View.VISIBLE);
         securityIcon.setVisibility(focused ? View.GONE : View.VISIBLE);
+        updateClearAddressButton();
 
         LinearLayout.LayoutParams params =
                 (LinearLayout.LayoutParams) addressContainer.getLayoutParams();
@@ -288,6 +338,15 @@ public class MainActivity extends Activity {
         } else {
             scheduleToolbarHide();
         }
+    }
+
+    private void updateClearAddressButton() {
+        if (clearAddressButton == null) {
+            return;
+        }
+        clearAddressButton.setVisibility(
+                addressFocused && addressBar.length() > 0 ? View.VISIBLE : View.GONE
+        );
     }
 
     private void updateNavigationButtons() {
@@ -363,49 +422,95 @@ public class MainActivity extends Activity {
     }
 
     private void showMenu(View anchor) {
-        PopupMenu popup = new PopupMenu(this, anchor);
-        popup.getMenu().add("Home");
-        popup.getMenu().add("Share page");
-        popup.getMenu().add("Find in page");
-        popup.getMenu().add(webView.getSettings().getUserAgentString().equals(mobileUserAgent)
-                ? "Desktop site"
-                : "Mobile site");
-        popup.getMenu().add("Hide controls now");
-        popup.getMenu().add("Settings");
-        popup.setOnMenuItemClickListener(item -> {
-            String title = item.getTitle().toString();
-            switch (title) {
-                case "Home":
-                    webView.loadUrl(BrowserPreferences.get(this).getString(
-                            BrowserPreferences.START_URL,
-                            BrowserPreferences.DEFAULT_START_URL
-                    ));
-                    return true;
-                case "Share page":
-                    shareCurrentPage();
-                    return true;
-                case "Find in page":
-                    showFindDialog();
-                    return true;
-                case "Desktop site":
-                    setDesktopMode(true);
-                    return true;
-                case "Mobile site":
-                    setDesktopMode(false);
-                    return true;
-                case "Hide controls now":
-                    hideToolbar(true);
-                    return true;
-                case "Settings":
-                    startActivityForResult(new Intent(this, SettingsActivity.class), REQUEST_SETTINGS);
-                    return true;
-                default:
-                    return false;
-            }
-        });
-        popup.setOnDismissListener(menu -> scheduleToolbarHide());
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setBackgroundResource(R.drawable.bg_popup_menu);
+        menu.setElevation(dp(12));
+
+        PopupWindow popup = new PopupWindow(
+                menu,
+                dp(220),
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                true
+        );
+        popup.setBackgroundDrawable(getDrawable(R.drawable.bg_popup_menu));
+        popup.setElevation(dp(12));
+        popup.setOutsideTouchable(true);
+
+        addMenuRow(menu, R.drawable.ic_home, "Home", () -> webView.loadUrl(
+                BrowserPreferences.get(this).getString(
+                        BrowserPreferences.START_URL,
+                        BrowserPreferences.DEFAULT_START_URL
+                )
+        ), popup);
+        addMenuRow(menu, R.drawable.ic_share, "Share page", this::shareCurrentPage, popup);
+        addMenuRow(menu, R.drawable.ic_search, "Find in page", this::showFindDialog, popup);
+        boolean mobile = webView.getSettings().getUserAgentString().equals(mobileUserAgent);
+        addMenuRow(
+                menu,
+                R.drawable.ic_desktop,
+                mobile ? "Desktop site" : "Mobile site",
+                () -> setDesktopMode(mobile),
+                popup
+        );
+        addMenuRow(
+                menu,
+                R.drawable.ic_visibility_off,
+                "Hide controls",
+                () -> hideToolbar(true),
+                popup
+        );
+        addMenuRow(menu, R.drawable.ic_settings, "Settings", () ->
+                startActivityForResult(
+                        new Intent(this, SettingsActivity.class),
+                        REQUEST_SETTINGS
+                ), popup);
+
+        popup.setOnDismissListener(() -> scheduleToolbarHide());
         uiHandler.removeCallbacks(hideToolbarRunnable);
-        popup.show();
+        int[] anchorLocation = new int[2];
+        anchor.getLocationOnScreen(anchorLocation);
+        popup.showAtLocation(
+                root,
+                Gravity.TOP | Gravity.END,
+                dp(12),
+                anchorLocation[1] + anchor.getHeight() + dp(4)
+        );
+    }
+
+    private void addMenuRow(
+            LinearLayout menu,
+            int iconResource,
+            String label,
+            Runnable action,
+            PopupWindow popup
+    ) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), 0, dp(12), 0);
+        row.setBackgroundResource(R.drawable.bg_icon_button);
+        row.setOnClickListener(view -> {
+            popup.dismiss();
+            action.run();
+        });
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconResource);
+        icon.setImageTintList(getColorStateList(R.color.browser_icon_tint));
+        row.addView(icon, new LinearLayout.LayoutParams(dp(22), dp(22)));
+
+        TextView title = new TextView(this);
+        title.setText(label);
+        title.setTextSize(16);
+        title.setTextColor(Color.rgb(32, 33, 36));
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        title.setPadding(dp(14), 0, 0, 0);
+        row.addView(title, new LinearLayout.LayoutParams(0, dp(52), 1));
+        menu.addView(row, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(52)
+        ));
     }
 
     private void shareCurrentPage() {
@@ -467,6 +572,19 @@ public class MainActivity extends Activity {
         boolean fullscreen = preferences.getBoolean(BrowserPreferences.FULLSCREEN, false);
         boolean keepAwake = preferences.getBoolean(BrowserPreferences.KEEP_SCREEN_ON, false);
         boolean desktop = preferences.getBoolean(BrowserPreferences.DESKTOP_MODE, false);
+        screenPinning = preferences.getBoolean(BrowserPreferences.SCREEN_PINNING, false);
+        restrictToStartHost = preferences.getBoolean(
+                BrowserPreferences.RESTRICT_TO_START_HOST,
+                false
+        );
+        blockExternalApps = preferences.getBoolean(
+                BrowserPreferences.BLOCK_EXTERNAL_APPS,
+                false
+        );
+        boolean preventScreenshots = preferences.getBoolean(
+                BrowserPreferences.PREVENT_SCREENSHOTS,
+                false
+        );
 
         fullscreenMode = fullscreen;
         applyFullscreenMode();
@@ -482,6 +600,12 @@ public class MainActivity extends Activity {
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         }
 
+        if (preventScreenshots) {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        } else {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        }
+
         applyDesktopMode(desktop);
         showToolbar(false);
 
@@ -495,6 +619,28 @@ public class MainActivity extends Activity {
         configuredStartUrl = newStartUrl;
 
         scheduleToolbarHide();
+        applyScreenPinning();
+    }
+
+    private void applyScreenPinning() {
+        ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        if (manager == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return;
+        }
+        int state = manager.getLockTaskModeState();
+        try {
+            if (screenPinning && state == ActivityManager.LOCK_TASK_MODE_NONE) {
+                startLockTask();
+            } else if (!screenPinning && state == ActivityManager.LOCK_TASK_MODE_PINNED) {
+                stopLockTask();
+            }
+        } catch (IllegalArgumentException | IllegalStateException error) {
+            Toast.makeText(
+                    this,
+                    "Screen pinning is not available on this device",
+                    Toast.LENGTH_LONG
+            ).show();
+        }
     }
 
     private void handleWebTouch(MotionEvent event) {
@@ -854,7 +1000,23 @@ public class MainActivity extends Activity {
         private boolean openExternalIfNeeded(Uri uri) {
             String scheme = uri.getScheme();
             if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
+                if (!isAllowedKioskHost(uri)) {
+                    Toast.makeText(
+                            MainActivity.this,
+                            "Navigation is limited to the startup website",
+                            Toast.LENGTH_SHORT
+                    ).show();
+                    return true;
+                }
                 return false;
+            }
+            if (blockExternalApps) {
+                Toast.makeText(
+                        MainActivity.this,
+                        "Opening other apps is disabled",
+                        Toast.LENGTH_SHORT
+                ).show();
+                return true;
             }
             try {
                 Intent intent = new Intent(Intent.ACTION_VIEW, uri);
@@ -864,6 +1026,22 @@ public class MainActivity extends Activity {
                         .show();
             }
             return true;
+        }
+
+        private boolean isAllowedKioskHost(Uri uri) {
+            if (!restrictToStartHost) {
+                return true;
+            }
+            Uri startUri = Uri.parse(configuredStartUrl);
+            String allowedHost = startUri.getHost();
+            String requestedHost = uri.getHost();
+            if (allowedHost == null || requestedHost == null) {
+                return false;
+            }
+            return requestedHost.equalsIgnoreCase(allowedHost)
+                    || requestedHost.toLowerCase().endsWith(
+                            "." + allowedHost.toLowerCase()
+                    );
         }
 
         @Override
