@@ -1,7 +1,8 @@
 <resources>
     <color name="brand">#155EEF</color>
     <color name="brand_dark">#FFFFFF</color>
-    <color name="launcher_background">#14103E</color>
-    <color name="splash_background">#14103E</color>
+    <color name="launcher_background">#1A1849</color>
+    <color name="splash_background">#1A1849</color>
     <color name="page_background">#F3F5F7</color>
+    <color name="midnight_dark">#101124</color>
 </resources>

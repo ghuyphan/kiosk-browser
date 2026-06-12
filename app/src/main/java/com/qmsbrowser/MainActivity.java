@@ -13,6 +13,10 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
+import android.content.res.ColorStateList;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -106,6 +110,22 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         setTheme(R.style.AppTheme);
         super.onCreate(savedInstanceState);
+        
+        // Apply dark theme colors to status and navigation bars
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+        getWindow().setStatusBarColor(Color.rgb(16, 17, 36));
+        getWindow().setNavigationBarColor(Color.rgb(16, 17, 36));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            View decor = getWindow().getDecorView();
+            int flags = decor.getSystemUiVisibility();
+            flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            }
+            decor.setSystemUiVisibility(flags);
+        }
+
         buildBrowser();
         applyPreferences(false);
         if (BrowserPreferences.get(this).getBoolean(
@@ -143,6 +163,7 @@ public class MainActivity extends Activity {
 
     private void buildBrowser() {
         root = new FrameLayout(this);
+        root.setBackgroundColor(Color.rgb(16, 17, 36)); // Midnight background (#101124)
         root.setOnApplyWindowInsetsListener((view, insets) -> {
             view.setPadding(
                     0,
@@ -168,35 +189,45 @@ public class MainActivity extends Activity {
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setMax(100);
+        progressBar.setProgressTintList(ColorStateList.valueOf(Color.rgb(21, 94, 239))); // neon blue
+        progressBar.setProgressBackgroundTintList(ColorStateList.valueOf(Color.rgb(45, 48, 86))); // dark track
         content.addView(progressBar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(3)
         ));
 
+        FrameLayout webViewContainer = new FrameLayout(this);
         webView = new BrowserWebView(this);
         configureWebView();
-        content.addView(webView, new LinearLayout.LayoutParams(
+        webViewContainer.addView(webView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1
+                ViewGroup.LayoutParams.MATCH_PARENT
         ));
 
         pullIndicator = new TextView(this);
         pullIndicator.setText("Pull to refresh");
         pullIndicator.setTextSize(13);
-        pullIndicator.setTextColor(Color.rgb(60, 64, 67));
+        pullIndicator.setTextColor(Color.rgb(244, 63, 94)); // rose pink matching app icon
+        pullIndicator.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         pullIndicator.setGravity(Gravity.CENTER);
-        pullIndicator.setBackgroundResource(R.drawable.bg_pull_indicator);
+        pullIndicator.setBackground(roundedBackground(Color.rgb(27, 29, 53), Color.rgb(45, 48, 86), 20));
         pullIndicator.setElevation(dp(6));
         pullIndicator.setAlpha(0f);
         pullIndicator.setVisibility(View.GONE);
+        pullIndicator.setPadding(dp(16), dp(8), dp(16), dp(8));
         FrameLayout.LayoutParams indicatorParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
         );
         indicatorParams.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         indicatorParams.topMargin = dp(10);
-        root.addView(pullIndicator, indicatorParams);
+        webViewContainer.addView(pullIndicator, indicatorParams);
+
+        content.addView(webViewContainer, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1
+        ));
 
         setContentView(root);
     }
@@ -206,7 +237,7 @@ public class MainActivity extends Activity {
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setPadding(dp(6), dp(5), dp(6), dp(5));
-        bar.setBackgroundColor(Color.WHITE);
+        bar.setBackgroundColor(Color.rgb(16, 17, 36)); // Midnight background (#101124)
         bar.setElevation(dp(3));
 
         backButton = toolbarButton(R.drawable.ic_arrow_back, "Back");
@@ -238,24 +269,49 @@ public class MainActivity extends Activity {
         addressContainer.setOrientation(LinearLayout.HORIZONTAL);
         addressContainer.setGravity(Gravity.CENTER_VERTICAL);
         addressContainer.setPadding(dp(12), 0, dp(6), 0);
-        addressContainer.setBackgroundResource(R.drawable.bg_address_bar);
+        addressContainer.setBackground(roundedBackground(Color.rgb(13, 14, 30), Color.rgb(45, 48, 86), 21)); // dark background/border
 
         securityIcon = new ImageView(this);
         securityIcon.setImageResource(R.drawable.ic_globe);
         securityIcon.setContentDescription("Site information");
-        addressContainer.addView(securityIcon, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        securityIcon.setImageTintList(ColorStateList.valueOf(Color.rgb(156, 163, 175))); // Gray 400
+        securityIcon.setBackground(getToolbarButtonBackground());
+        securityIcon.setPadding(dp(2), dp(2), dp(2), dp(2));
+        securityIcon.setOnClickListener(v -> showSecurityDialog());
+        securityIcon.setOnTouchListener((v, event) -> {
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    v.animate().scaleX(0.85f).scaleY(0.85f).setDuration(100).start();
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    v.animate().scaleX(1f).scaleY(1f).setDuration(100).start();
+                    break;
+            }
+            return false;
+        });
+        LinearLayout.LayoutParams securityParams = new LinearLayout.LayoutParams(dp(16), dp(16));
+        securityParams.rightMargin = dp(4);
+        addressContainer.addView(securityIcon, securityParams);
 
         addressBar = new EditText(this);
         addressBar.setSingleLine(true);
-        addressBar.setTextSize(16);
-        addressBar.setTextColor(Color.rgb(32, 33, 36));
-        addressBar.setHintTextColor(Color.rgb(95, 99, 104));
+        addressBar.setTextSize(15);
+        addressBar.setTextColor(Color.WHITE);
+        addressBar.setHintTextColor(Color.rgb(95, 100, 138));
         addressBar.setHint("Search or enter address");
         addressBar.setSelectAllOnFocus(true);
         addressBar.setBackgroundColor(Color.TRANSPARENT);
         addressBar.setPadding(dp(8), 0, dp(6), 0);
         addressBar.setImeOptions(EditorInfo.IME_ACTION_GO);
-        addressBar.setOnFocusChangeListener((view, focused) -> setAddressFocused(focused));
+        addressBar.setOnFocusChangeListener((view, focused) -> {
+            setAddressFocused(focused);
+            if (focused) {
+                addressContainer.setBackground(roundedBackground(Color.rgb(13, 14, 30), Color.rgb(21, 94, 239), 21)); // Blue focus border
+            } else {
+                addressContainer.setBackground(roundedBackground(Color.rgb(13, 14, 30), Color.rgb(45, 48, 86), 21));
+            }
+        });
         addressBar.setOnEditorActionListener((view, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_GO) {
                 navigateFromAddressBar();
@@ -303,9 +359,9 @@ public class MainActivity extends Activity {
     private ImageButton toolbarButton(int iconResource, String description) {
         ImageButton button = new ImageButton(this);
         button.setImageResource(iconResource);
-        button.setImageTintList(getColorStateList(R.color.browser_icon_tint));
+        button.setImageTintList(getToolbarIconTint());
         button.setScaleType(ImageView.ScaleType.CENTER);
-        button.setBackgroundResource(R.drawable.bg_icon_button);
+        button.setBackground(getToolbarButtonBackground());
         button.setContentDescription(description);
         button.setPadding(dp(10), dp(10), dp(10), dp(10));
         button.setLayoutParams(new LinearLayout.LayoutParams(dp(40), dp(40)));
@@ -357,11 +413,22 @@ public class MainActivity extends Activity {
 
     private void updateAddressState(String url) {
         addressBar.setText(url);
-        securityIcon.setImageResource(
-                url != null && url.startsWith("https://")
-                        ? R.drawable.ic_lock
-                        : R.drawable.ic_globe
-        );
+        boolean isHttps = url != null && url.startsWith("https://");
+        securityIcon.setImageResource(isHttps ? R.drawable.ic_lock : R.drawable.ic_globe);
+        securityIcon.setImageTintList(ColorStateList.valueOf(
+                isHttps ? Color.rgb(16, 185, 129) : Color.rgb(156, 163, 175) // green lock vs gray globe
+        ));
+        
+        // Entrance scale animation
+        securityIcon.setScaleX(0f);
+        securityIcon.setScaleY(0f);
+        securityIcon.animate()
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(220)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                .start();
+
         updateNavigationButtons();
     }
 
@@ -425,7 +492,7 @@ public class MainActivity extends Activity {
     private void showMenu(View anchor) {
         LinearLayout menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
-        menu.setBackgroundResource(R.drawable.bg_popup_menu);
+        menu.setBackground(roundedBackground(Color.rgb(27, 29, 53), Color.rgb(45, 48, 86), 18));
         menu.setElevation(dp(12));
 
         PopupWindow popup = new PopupWindow(
@@ -434,7 +501,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 true
         );
-        popup.setBackgroundDrawable(getDrawable(R.drawable.bg_popup_menu));
+        popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         popup.setElevation(dp(12));
         popup.setOutsideTouchable(true);
 
@@ -489,8 +556,8 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(14), 0, dp(12), 0);
-        row.setBackgroundResource(R.drawable.bg_icon_button);
+        row.setPadding(dp(16), 0, dp(16), 0);
+        row.setBackground(getMenuRowBackground());
         row.setOnClickListener(view -> {
             popup.dismiss();
             action.run();
@@ -498,20 +565,64 @@ public class MainActivity extends Activity {
 
         ImageView icon = new ImageView(this);
         icon.setImageResource(iconResource);
-        icon.setImageTintList(getColorStateList(R.color.browser_icon_tint));
+        icon.setImageTintList(ColorStateList.valueOf(Color.rgb(156, 163, 175))); // Gray 400
         row.addView(icon, new LinearLayout.LayoutParams(dp(22), dp(22)));
 
         TextView title = new TextView(this);
         title.setText(label);
-        title.setTextSize(16);
-        title.setTextColor(Color.rgb(32, 33, 36));
+        title.setTextSize(15);
+        title.setTextColor(Color.rgb(229, 231, 235)); // Gray 200
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         title.setGravity(Gravity.CENTER_VERTICAL);
         title.setPadding(dp(14), 0, 0, 0);
-        row.addView(title, new LinearLayout.LayoutParams(0, dp(52), 1));
+        row.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
         menu.addView(row, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(52)
+                dp(48)
         ));
+    }
+
+    private GradientDrawable roundedBackground(int fill, int stroke, int radiusDp) {
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(fill);
+        background.setCornerRadius(dp(radiusDp));
+        background.setStroke(dp(1), stroke);
+        return background;
+    }
+
+    private ColorStateList getToolbarIconTint() {
+        int[][] states = new int[][] {
+            new int[] { -android.R.attr.state_enabled },
+            new int[] { android.R.attr.state_enabled }
+        };
+        int[] colors = new int[] {
+            Color.rgb(75, 85, 99),    // Gray 600 (disabled)
+            Color.rgb(229, 231, 235)  // Gray 200 (enabled)
+        };
+        return new ColorStateList(states, colors);
+    }
+
+    private RippleDrawable getToolbarButtonBackground() {
+        int rippleColor = Color.argb(40, 255, 255, 255);
+        GradientDrawable mask = new GradientDrawable();
+        mask.setShape(GradientDrawable.OVAL);
+        mask.setColor(Color.WHITE);
+        return new RippleDrawable(
+            ColorStateList.valueOf(rippleColor),
+            null,
+            mask
+        );
+    }
+
+    private RippleDrawable getMenuRowBackground() {
+        int rippleColor = Color.argb(25, 255, 255, 255);
+        GradientDrawable content = new GradientDrawable();
+        content.setColor(Color.TRANSPARENT);
+        return new RippleDrawable(
+            ColorStateList.valueOf(rippleColor),
+            content,
+            null
+        );
     }
 
     private void shareCurrentPage() {
@@ -625,7 +736,7 @@ public class MainActivity extends Activity {
 
     private void applyScreenPinning() {
         ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
-        if (manager == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+        if (manager == null) {
             return;
         }
         int state = manager.getLockTaskModeState();
@@ -1232,5 +1343,68 @@ public class MainActivity extends Activity {
             this.contentDisposition = contentDisposition;
             this.mimeType = mimeType;
         }
+    }
+    private void showSecurityDialog() {
+        String url = webView.getUrl();
+        String host = url != null ? Uri.parse(url).getHost() : "";
+        if (host == null) host = "";
+        boolean isHttps = url != null && url.startsWith("https://");
+
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(dp(24), dp(20), dp(24), dp(20));
+
+        // Header
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(0, 0, 0, dp(16));
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(isHttps ? R.drawable.ic_lock : R.drawable.ic_globe);
+        icon.setImageTintList(ColorStateList.valueOf(
+                isHttps ? Color.rgb(16, 185, 129) : Color.rgb(244, 63, 94) // green vs warning rose-pink
+        ));
+        header.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
+
+        TextView title = new TextView(this);
+        title.setText(isHttps ? "Connection is secure" : "Connection is not secure");
+        title.setTextSize(17);
+        title.setTextColor(Color.WHITE);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        title.setPadding(dp(12), 0, 0, 0);
+        header.addView(title);
+        container.addView(header);
+
+        // Message
+        TextView message = new TextView(this);
+        message.setText(isHttps 
+                ? "Your information (for example, passwords or credit card numbers) is private when it is sent to this site."
+                : "You should not enter any sensitive information on this site (for example, passwords or credit cards), because it could be stolen by attackers.");
+        message.setTextSize(14);
+        message.setTextColor(Color.rgb(142, 146, 178)); // gray 400
+        message.setPadding(0, 0, 0, dp(20));
+        container.addView(message);
+
+        // Domain details
+        TextView domainText = new TextView(this);
+        domainText.setText("Domain: " + host);
+        domainText.setTextSize(14);
+        domainText.setTextColor(Color.WHITE);
+        domainText.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        container.addView(domainText);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(container)
+                .create();
+        
+        if (dialog.getWindow() != null) {
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(Color.rgb(27, 29, 53)); // Midnight card background
+            bg.setCornerRadius(dp(18));
+            bg.setStroke(dp(1), Color.rgb(45, 48, 86));
+            dialog.getWindow().setBackgroundDrawable(bg);
+        }
+        dialog.show();
     }
 }
