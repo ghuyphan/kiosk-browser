@@ -84,7 +84,8 @@ public class MainActivity extends Activity {
     private BrowserWebView webView;
     private EditText addressBar;
     private ProgressBar progressBar;
-    private TextView pullIndicator;
+    private FrameLayout pullIndicator;
+    private ImageView pullIndicatorIcon;
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest webPermissionRequest;
     private GeolocationPermissions.Callback geolocationCallback;
@@ -102,7 +103,6 @@ public class MainActivity extends Activity {
     private String mobileUserAgent;
     private String configuredStartUrl = BrowserPreferences.DEFAULT_START_URL;
     private boolean fullscreenMode;
-    private boolean screenPinning;
     private boolean restrictToStartHost;
     private boolean blockExternalApps;
     private LinearLayout findBar;
@@ -159,11 +159,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-        applyScreenPinning();
-    }
+
 
     private void buildBrowser() {
         root = new FrameLayout(this);
@@ -222,20 +218,24 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT
         ));
 
-        pullIndicator = new TextView(this);
-        pullIndicator.setText("Pull to refresh");
-        pullIndicator.setTextSize(13);
-        pullIndicator.setTextColor(Color.rgb(244, 63, 94)); // rose pink matching app icon
-        pullIndicator.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        pullIndicator.setGravity(Gravity.CENTER);
-        pullIndicator.setBackground(roundedBackground(Color.rgb(27, 29, 53), Color.rgb(45, 48, 86), 20));
+        pullIndicator = new FrameLayout(this);
+        pullIndicator.setBackground(roundedBackground(Color.rgb(21, 23, 44), Color.rgb(45, 48, 86), 20));
         pullIndicator.setElevation(dp(6));
         pullIndicator.setAlpha(0f);
         pullIndicator.setVisibility(View.GONE);
-        pullIndicator.setPadding(dp(16), dp(8), dp(16), dp(8));
+
+        pullIndicatorIcon = new ImageView(this);
+        pullIndicatorIcon.setImageResource(R.drawable.ic_refresh);
+        pullIndicatorIcon.setImageTintList(ColorStateList.valueOf(Color.rgb(156, 163, 175)));
+        pullIndicatorIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        
+        FrameLayout.LayoutParams iconParams = new FrameLayout.LayoutParams(dp(20), dp(20));
+        iconParams.gravity = Gravity.CENTER;
+        pullIndicator.addView(pullIndicatorIcon, iconParams);
+
         FrameLayout.LayoutParams indicatorParams = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                dp(40),
+                dp(40)
         );
         indicatorParams.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         indicatorParams.topMargin = dp(10);
@@ -378,10 +378,10 @@ public class MainActivity extends Activity {
         ImageButton button = new ImageButton(this);
         button.setImageResource(iconResource);
         button.setImageTintList(getToolbarIconTint());
-        button.setScaleType(ImageView.ScaleType.CENTER);
+        button.setScaleType(ImageView.ScaleType.FIT_CENTER);
         button.setBackground(getToolbarButtonBackground());
         button.setContentDescription(description);
-        button.setPadding(dp(10), dp(10), dp(10), dp(10));
+        button.setPadding(dp(12), dp(12), dp(12), dp(12));
         button.setLayoutParams(new LinearLayout.LayoutParams(dp(40), dp(40)));
         return button;
     }
@@ -668,6 +668,14 @@ public class MainActivity extends Activity {
         if (findBar != null) {
             findBar.setVisibility(View.VISIBLE);
             findBarDivider.setVisibility(View.VISIBLE);
+            findBar.setAlpha(0f);
+            findBar.setTranslationY(-dp(12));
+            findBar.animate()
+                    .alpha(1f)
+                    .translationY(0f)
+                    .setDuration(180)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                    .start();
             findInput.requestFocus();
             InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
             if (imm != null) {
@@ -677,16 +685,26 @@ public class MainActivity extends Activity {
     }
 
     private void hideFindBar() {
-        if (findBar != null) {
-            webView.clearMatches();
-            findInput.setText("");
-            findStatus.setText("");
-            findBar.setVisibility(View.GONE);
-            findBarDivider.setVisibility(View.GONE);
+        if (findBar != null && findBar.getVisibility() == View.VISIBLE) {
             InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
             if (imm != null) {
                 imm.hideSoftInputFromWindow(findInput.getWindowToken(), 0);
             }
+            webView.clearMatches();
+            
+            findBar.animate()
+                    .alpha(0f)
+                    .translationY(-dp(12))
+                    .setDuration(180)
+                    .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                    .withEndAction(() -> {
+                        findBar.setVisibility(View.GONE);
+                        findBarDivider.setVisibility(View.GONE);
+                        findInput.setText("");
+                        findStatus.setText("");
+                    })
+                    .start();
+            
             webView.requestFocus();
         }
     }
@@ -825,7 +843,6 @@ public class MainActivity extends Activity {
         boolean fullscreen = preferences.getBoolean(BrowserPreferences.FULLSCREEN, false);
         boolean keepAwake = preferences.getBoolean(BrowserPreferences.KEEP_SCREEN_ON, false);
         boolean desktop = preferences.getBoolean(BrowserPreferences.DESKTOP_MODE, false);
-        screenPinning = preferences.getBoolean(BrowserPreferences.SCREEN_PINNING, false);
         restrictToStartHost = preferences.getBoolean(
                 BrowserPreferences.RESTRICT_TO_START_HOST,
                 false
@@ -865,6 +882,7 @@ public class MainActivity extends Activity {
         boolean savePasswords = preferences.getBoolean(BrowserPreferences.SAVE_PASSWORDS, true);
         if (webView != null) {
             webView.getSettings().setSavePassword(savePasswords);
+            webView.getSettings().setSaveFormData(savePasswords);
         }
 
         if (fromSettings) {
@@ -877,29 +895,9 @@ public class MainActivity extends Activity {
         configuredStartUrl = newStartUrl;
 
         scheduleToolbarHide();
-        applyScreenPinning();
     }
 
-    private void applyScreenPinning() {
-        ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
-        if (manager == null) {
-            return;
-        }
-        int state = manager.getLockTaskModeState();
-        try {
-            if (screenPinning && state == ActivityManager.LOCK_TASK_MODE_NONE) {
-                startLockTask();
-            } else if (!screenPinning && state == ActivityManager.LOCK_TASK_MODE_PINNED) {
-                stopLockTask();
-            }
-        } catch (IllegalArgumentException | IllegalStateException error) {
-            Toast.makeText(
-                    this,
-                    "Screen pinning is not available on this device",
-                    Toast.LENGTH_LONG
-            ).show();
-        }
-    }
+
 
     private void handleWebTouch(MotionEvent event) {
         float y = event.getRawY();
@@ -923,7 +921,17 @@ public class MainActivity extends Activity {
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
                 if (pullArmed && event.getActionMasked() == MotionEvent.ACTION_UP) {
-                    pullIndicator.setText("Refreshing…");
+                    android.view.animation.RotateAnimation rotate = new android.view.animation.RotateAnimation(
+                        0, 360,
+                        android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f,
+                        android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f
+                    );
+                    rotate.setDuration(800);
+                    rotate.setRepeatCount(android.view.animation.Animation.INFINITE);
+                    rotate.setInterpolator(new android.view.animation.LinearInterpolator());
+                    if (pullIndicatorIcon != null) {
+                        pullIndicatorIcon.startAnimation(rotate);
+                    }
                     webView.reload();
                 }
                 hidePullIndicator();
@@ -978,16 +986,24 @@ public class MainActivity extends Activity {
     }
 
     private void updatePullIndicator(float distance) {
-        float threshold = dp(92);
+        float threshold = dp(70);
         float progress = Math.min(1f, distance / threshold);
         pullArmed = distance >= threshold;
-        pullIndicator.setText(pullArmed ? "Release to refresh" : "Pull to refresh");
         pullIndicator.setVisibility(View.VISIBLE);
         pullIndicator.setAlpha(progress);
-        pullIndicator.setTranslationY(Math.min(dp(34), distance * 0.25f));
+        pullIndicator.setTranslationY(Math.min(dp(44), distance * 0.3f));
+        if (pullIndicatorIcon != null) {
+            pullIndicatorIcon.setRotation(progress * 360f);
+            pullIndicatorIcon.setImageTintList(ColorStateList.valueOf(
+                pullArmed ? Color.rgb(244, 63, 94) : Color.rgb(156, 163, 175)
+            ));
+        }
     }
 
     private void hidePullIndicator() {
+        if (pullIndicatorIcon != null) {
+            pullIndicatorIcon.clearAnimation();
+        }
         pullIndicator.animate()
                 .alpha(0f)
                 .translationY(0f)
@@ -1224,7 +1240,12 @@ public class MainActivity extends Activity {
             webView.stopLoading();
             webView.setWebChromeClient(null);
             webView.setWebViewClient(null);
+            ViewGroup parent = (ViewGroup) webView.getParent();
+            if (parent != null) {
+                parent.removeView(webView);
+            }
             webView.destroy();
+            webView = null;
         }
         super.onDestroy();
     }

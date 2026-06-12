@@ -35,7 +35,6 @@ public class SettingsActivity extends Activity {
     private CustomSwitch fullscreen;
     private CustomSwitch desktopMode;
     private CustomSwitch keepScreenOn;
-    private CustomSwitch screenPinning;
     private CustomSwitch restrictToStartHost;
     private CustomSwitch blockExternalApps;
     private CustomSwitch preventScreenshots;
@@ -186,13 +185,10 @@ public class SettingsActivity extends Activity {
         LinearLayout kioskCard = card();
         kioskCard.addView(cardHeader(R.drawable.ic_lock, "Kiosk controls", colorPink));
         
-        screenPinning = new CustomSwitch(this, colorPink);
         restrictToStartHost = new CustomSwitch(this, colorPink);
         blockExternalApps = new CustomSwitch(this, colorPink);
         preventScreenshots = new CustomSwitch(this, colorPink);
         
-        kioskCard.addView(settingRow(R.drawable.ic_pin, Color.rgb(13, 148, 136), "Android screen pinning", "Locks the device to only this browser app", screenPinning));
-        kioskCard.addView(divider());
         kioskCard.addView(settingRow(R.drawable.ic_home_lock, Color.rgb(225, 29, 72), "Stay on startup website", "Restricts browsing to start domain only", restrictToStartHost));
         kioskCard.addView(divider());
         kioskCard.addView(settingRow(R.drawable.ic_block, Color.rgb(234, 88, 12), "Block links to other apps", "Blocks links from opening external apps", blockExternalApps));
@@ -546,10 +542,6 @@ public class SettingsActivity extends Activity {
         fullscreen.setChecked(preferences.getBoolean(BrowserPreferences.FULLSCREEN, false));
         desktopMode.setChecked(preferences.getBoolean(BrowserPreferences.DESKTOP_MODE, false));
         keepScreenOn.setChecked(preferences.getBoolean(BrowserPreferences.KEEP_SCREEN_ON, false));
-        screenPinning.setChecked(preferences.getBoolean(
-                BrowserPreferences.SCREEN_PINNING,
-                false
-        ));
         restrictToStartHost.setChecked(preferences.getBoolean(
                 BrowserPreferences.RESTRICT_TO_START_HOST,
                 false
@@ -580,7 +572,6 @@ public class SettingsActivity extends Activity {
                 .putBoolean(BrowserPreferences.FULLSCREEN, fullscreen.isChecked())
                 .putBoolean(BrowserPreferences.DESKTOP_MODE, desktopMode.isChecked())
                 .putBoolean(BrowserPreferences.KEEP_SCREEN_ON, keepScreenOn.isChecked())
-                .putBoolean(BrowserPreferences.SCREEN_PINNING, screenPinning.isChecked())
                 .putBoolean(
                         BrowserPreferences.RESTRICT_TO_START_HOST,
                         restrictToStartHost.isChecked()
