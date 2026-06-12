@@ -82,7 +82,6 @@ public class MainActivity extends Activity {
     private WebChromeClient.CustomViewCallback customViewCallback;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private final Runnable hideToolbarRunnable = () -> hideToolbar(true);
-    private boolean autoHideToolbar = true;
     private boolean toolbarVisible = true;
     private boolean addressFocused;
     private boolean pullArmed;
@@ -97,6 +96,12 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         buildBrowser();
         applyPreferences(false);
+        if (BrowserPreferences.get(this).getBoolean(
+                BrowserPreferences.TOOLBAR_HIDDEN,
+                false
+        )) {
+            hideToolbar(false);
+        }
 
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
             Uri launchUri = getIntent().getData();
@@ -457,13 +462,8 @@ public class MainActivity extends Activity {
                 BrowserPreferences.START_URL,
                 BrowserPreferences.DEFAULT_START_URL
         );
-        boolean previousAutoHide = autoHideToolbar;
         boolean previousDesktop = webView != null
                 && !webView.getSettings().getUserAgentString().equals(mobileUserAgent);
-        autoHideToolbar = preferences.getBoolean(
-                BrowserPreferences.AUTO_HIDE_TOOLBAR,
-                true
-        );
         boolean fullscreen = preferences.getBoolean(BrowserPreferences.FULLSCREEN, false);
         boolean keepAwake = preferences.getBoolean(BrowserPreferences.KEEP_SCREEN_ON, false);
         boolean desktop = preferences.getBoolean(BrowserPreferences.DESKTOP_MODE, false);
@@ -494,11 +494,7 @@ public class MainActivity extends Activity {
         }
         configuredStartUrl = newStartUrl;
 
-        if (autoHideToolbar) {
-            scheduleToolbarHide();
-        } else if (previousAutoHide) {
-            uiHandler.removeCallbacks(hideToolbarRunnable);
-        }
+        scheduleToolbarHide();
     }
 
     private void handleWebTouch(MotionEvent event) {
@@ -616,10 +612,13 @@ public class MainActivity extends Activity {
 
     private void hideToolbar(boolean animate) {
         uiHandler.removeCallbacks(hideToolbarRunnable);
-        if (!autoHideToolbar || !toolbarVisible || addressFocused || customView != null) {
+        if (!toolbarVisible || addressFocused || customView != null) {
             return;
         }
         toolbarVisible = false;
+        BrowserPreferences.get(this).edit()
+                .putBoolean(BrowserPreferences.TOOLBAR_HIDDEN, true)
+                .apply();
         progressBar.setVisibility(View.GONE);
         if (animate) {
             toolbar.animate()
@@ -639,7 +638,7 @@ public class MainActivity extends Activity {
 
     private void scheduleToolbarHide() {
         uiHandler.removeCallbacks(hideToolbarRunnable);
-        if (autoHideToolbar && !addressFocused && customView == null) {
+        if (!addressFocused && customView == null) {
             uiHandler.postDelayed(hideToolbarRunnable, AUTO_HIDE_DELAY_MS);
         }
     }
@@ -803,7 +802,7 @@ public class MainActivity extends Activity {
             InputMethodManager keyboard =
                     (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
             keyboard.hideSoftInputFromWindow(addressBar.getWindowToken(), 0);
-        } else if (toolbarVisible && autoHideToolbar) {
+        } else if (toolbarVisible) {
             hideToolbar(true);
         } else if (webView.canGoBack()) {
             webView.goBack();

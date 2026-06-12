@@ -24,7 +24,6 @@ import android.widget.Toast;
 
 public class SettingsActivity extends Activity {
     private EditText startUrl;
-    private CheckBox autoHideToolbar;
     private CheckBox fullscreen;
     private CheckBox desktopMode;
     private CheckBox keepScreenOn;
@@ -69,11 +68,9 @@ public class SettingsActivity extends Activity {
         urlParams.setMargins(0, dp(8), 0, dp(12));
         form.addView(startUrl, urlParams);
 
-        autoHideToolbar = checkbox("Auto-hide browser controls");
         fullscreen = checkbox("Use fullscreen mode");
         desktopMode = checkbox("Request desktop versions of websites");
         keepScreenOn = checkbox("Keep the screen awake");
-        form.addView(autoHideToolbar);
         form.addView(fullscreen);
         form.addView(desktopMode);
         form.addView(keepScreenOn);
@@ -152,10 +149,6 @@ public class SettingsActivity extends Activity {
                 BrowserPreferences.START_URL,
                 BrowserPreferences.DEFAULT_START_URL
         ));
-        autoHideToolbar.setChecked(preferences.getBoolean(
-                BrowserPreferences.AUTO_HIDE_TOOLBAR,
-                true
-        ));
         fullscreen.setChecked(preferences.getBoolean(BrowserPreferences.FULLSCREEN, false));
         desktopMode.setChecked(preferences.getBoolean(BrowserPreferences.DESKTOP_MODE, false));
         keepScreenOn.setChecked(preferences.getBoolean(BrowserPreferences.KEEP_SCREEN_ON, false));
@@ -170,7 +163,6 @@ public class SettingsActivity extends Activity {
 
         BrowserPreferences.get(this).edit()
                 .putString(BrowserPreferences.START_URL, normalizedUrl)
-                .putBoolean(BrowserPreferences.AUTO_HIDE_TOOLBAR, autoHideToolbar.isChecked())
                 .putBoolean(BrowserPreferences.FULLSCREEN, fullscreen.isChecked())
                 .putBoolean(BrowserPreferences.DESKTOP_MODE, desktopMode.isChecked())
                 .putBoolean(BrowserPreferences.KEEP_SCREEN_ON, keepScreenOn.isChecked())

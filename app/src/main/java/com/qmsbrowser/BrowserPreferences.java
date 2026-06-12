@@ -6,10 +6,10 @@ import android.content.SharedPreferences;
 final class BrowserPreferences {
     static final String FILE = "browser_settings";
     static final String START_URL = "start_url";
-    static final String AUTO_HIDE_TOOLBAR = "auto_hide_toolbar";
     static final String DESKTOP_MODE = "desktop_mode";
     static final String KEEP_SCREEN_ON = "keep_screen_on";
     static final String FULLSCREEN = "fullscreen";
+    static final String TOOLBAR_HIDDEN = "toolbar_hidden";
 
     static final String DEFAULT_START_URL = "https://www.google.com/";
 
