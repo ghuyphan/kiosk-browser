@@ -1,5 +1,8 @@
 package com.qmsbrowser;
 
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanner;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
+
 import android.Manifest;
 import android.app.Activity;
 import android.app.ActivityManager;
@@ -530,13 +533,31 @@ public class MainActivity extends Activity {
         if (value.isEmpty()) {
             return BrowserPreferences.DEFAULT_START_URL;
         }
+        
+        // 1. If it already has a scheme, return it as-is
         if (value.matches("^[a-zA-Z][a-zA-Z0-9+.-]*://.*")) {
             return value;
         }
+        
+        // 2. If it contains spaces, it's definitely a search query
         if (value.contains(" ")) {
             return "https://www.google.com/search?q=" + Uri.encode(value);
         }
-        return "https://" + value;
+        
+        // Heuristics to check if it's a URL:
+        // - localhost
+        // - IP address (e.g., 192.168.1.1)
+        // - Domain name (contains a dot, and has a TLD of at least 2 chars, optional port)
+        boolean isLocalhost = value.matches("^localhost(:\\d+)?$");
+        boolean isIp = value.matches("^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}(:\\d+)?$");
+        boolean isDomain = value.matches("^([a-zA-Z0-9-]+\\.)+[a-zA-Z]{2,}(:\\d+)?(/.*)?$");
+        
+        if (isLocalhost || isIp || isDomain) {
+            return "https://" + value;
+        }
+        
+        // Default to Google search
+        return "https://www.google.com/search?q=" + Uri.encode(value);
     }
 
     private void showMenu(View anchor) {
@@ -1865,6 +1886,29 @@ public class MainActivity extends Activity {
     }
 
     private void startQrScanner() {
+        try {
+            GmsBarcodeScanner scanner = GmsBarcodeScanning.getClient(this);
+            scanner.startScan()
+                    .addOnSuccessListener(barcode -> {
+                        String scanResult = barcode.getRawValue();
+                        if (scanResult != null && (scanResult.startsWith("http://") || scanResult.startsWith("https://"))) {
+                            webView.loadUrl(scanResult);
+                            Toast.makeText(MainActivity.this, "Connecting to: " + scanResult, Toast.LENGTH_SHORT).show();
+                        } else {
+                            Toast.makeText(MainActivity.this, "Invalid QR code URL", Toast.LENGTH_SHORT).show();
+                        }
+                    })
+                    .addOnFailureListener(e -> {
+                        Log.w("MainActivity", "Google Code Scanner failed, falling back to intent", e);
+                        fallbackToIntentScanner();
+                    });
+        } catch (Throwable t) {
+            Log.w("MainActivity", "Google Code Scanner not available, falling back to intent", t);
+            fallbackToIntentScanner();
+        }
+    }
+
+    private void fallbackToIntentScanner() {
         Intent intent = new Intent("android.provider.action.SCAN_WITHOUT_CREDENTIALS");
         try {
             startActivityForResult(intent, REQUEST_SCAN_QR);
@@ -1879,6 +1923,7 @@ public class MainActivity extends Activity {
             }
         }
     }
+
 
     private void loadQrCode(String url, ImageView imageView, ProgressBar progress) {
         new Thread(() -> {
