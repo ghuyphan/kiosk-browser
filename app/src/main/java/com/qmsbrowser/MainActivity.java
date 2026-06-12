@@ -106,6 +106,7 @@ public class MainActivity extends Activity {
     private boolean pullArmed;
     private boolean isRefreshing;
     private boolean gestureStartedAtTop;
+    private boolean gestureStartedWithToolbarHidden;
     private float gestureStartY = -1;
     private String mobileUserAgent;
     private String configuredStartUrl = BrowserPreferences.DEFAULT_START_URL;
@@ -952,6 +953,7 @@ public class MainActivity extends Activity {
                 }
                 gestureStartY = y;
                 gestureStartedAtTop = !webView.canScrollVertically(-1);
+                gestureStartedWithToolbarHidden = !toolbarVisible;
                 pullArmed = false;
                 break;
             case MotionEvent.ACTION_MOVE:
@@ -962,7 +964,8 @@ public class MainActivity extends Activity {
                 if (totalDelta > dp(14) && !toolbarVisible) {
                     showToolbar(false);
                 }
-                if (gestureStartedAtTop
+                if (!gestureStartedWithToolbarHidden
+                        && gestureStartedAtTop
                         && !webView.canScrollVertically(-1)
                         && totalDelta > dp(10)) {
                     updatePullIndicator(totalDelta);
@@ -995,6 +998,7 @@ public class MainActivity extends Activity {
                     hidePullIndicator();
                 }
                 gestureStartedAtTop = false;
+                gestureStartedWithToolbarHidden = false;
                 gestureStartY = -1;
                 pullArmed = false;
                 scheduleToolbarHide();
