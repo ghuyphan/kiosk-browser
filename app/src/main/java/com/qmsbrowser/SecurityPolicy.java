@@ -30,4 +30,20 @@ final class SecurityPolicy {
         String configured = configuredHost.toLowerCase(java.util.Locale.US);
         return requested.equals(configured) || requested.endsWith("." + configured);
     }
+
+    static boolean isHostInAllowlist(String host, String allowlistStr) {
+        if (host == null || allowlistStr == null || allowlistStr.trim().isEmpty()) {
+            return false;
+        }
+        String[] domains = allowlistStr.split("[,;\\s]+");
+        String lowerHost = host.toLowerCase(java.util.Locale.US);
+        for (String domain : domains) {
+            String trimmed = domain.trim().toLowerCase(java.util.Locale.US);
+            if (trimmed.isEmpty()) continue;
+            if (lowerHost.equals(trimmed) || lowerHost.endsWith("." + trimmed)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

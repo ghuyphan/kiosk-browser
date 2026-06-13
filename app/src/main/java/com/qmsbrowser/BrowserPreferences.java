@@ -13,7 +13,12 @@ final class BrowserPreferences {
     static final String RESTRICT_TO_START_HOST = "restrict_to_start_host";
     static final String BLOCK_EXTERNAL_APPS = "block_external_apps";
     static final String PREVENT_SCREENSHOTS = "prevent_screenshots";
-    static final String SAVE_PASSWORDS = "save_passwords";
+    static final String AUTOFILL_ENABLED = "autofill_enabled";
+    static final String THIRD_PARTY_COOKIES_ENABLED = "third_party_cookies_enabled";
+    static final String IDP_ALLOWLIST = "idp_allowlist";
+    static final String SESSION_CLEAR_POLICY = "session_clear_policy";
+    static final String SESSION_INACTIVITY_DURATION_MINS = "session_inactivity_duration_mins";
+    static final String NEXT_SCHEDULED_CLEAR_TIME = "next_scheduled_clear_time";
 
     static final String DEFAULT_START_URL = "https://www.google.com/";
 

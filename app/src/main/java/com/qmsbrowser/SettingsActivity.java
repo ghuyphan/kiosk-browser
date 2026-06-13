@@ -1,6 +1,7 @@
 package com.qmsbrowser;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.res.ColorStateList;
@@ -38,7 +39,16 @@ public class SettingsActivity extends Activity {
     private CustomSwitch restrictToStartHost;
     private CustomSwitch blockExternalApps;
     private CustomSwitch preventScreenshots;
-    private CustomSwitch savePasswords;
+    private CustomSwitch autofillEnabled;
+    private CustomSwitch thirdPartyCookies;
+    private EditText idpAllowlist;
+
+    // Phase 3: Session policies
+    private String selectedPolicy = "never";
+    private int selectedInactivityMins = 15;
+    private TextView policyDesc;
+    private TextView inactivityDesc;
+    private LinearLayout inactivityRow;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -194,11 +204,141 @@ public class SettingsActivity extends Activity {
         kioskCard.addView(settingRow(R.drawable.ic_shield, colorViolet, "Protect screen content", "Prevents screenshots and screen recordings", preventScreenshots));
         kioskCard.addView(divider());
         
-        savePasswords = new CustomSwitch(this, colorViolet);
-        kioskCard.addView(settingRow(R.drawable.ic_key, colorViolet, "Save passwords", "Allows saving login credentials for websites", savePasswords));
+        autofillEnabled = new CustomSwitch(this, colorViolet);
+        kioskCard.addView(settingRow(R.drawable.ic_key, colorViolet, "Autofill credentials", "Allows autofill of saved login credentials & form data", autofillEnabled));
+        kioskCard.addView(divider());
+
+        thirdPartyCookies = new CustomSwitch(this, colorViolet);
+        kioskCard.addView(settingRow(R.drawable.ic_globe, colorViolet, "Allow third-party cookies", "Required for some single sign-on (SSO) login systems", thirdPartyCookies));
+        kioskCard.addView(divider());
+
+        // IDP Allowlist Input
+        TextView idpLabel = new TextView(this);
+        idpLabel.setText("Identity Provider Allowlist");
+        idpLabel.setTextSize(14);
+        idpLabel.setTextColor(Color.WHITE);
+        idpLabel.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        idpLabel.setPadding(0, dp(12), 0, dp(4));
+        kioskCard.addView(idpLabel);
+
+        TextView idpDesc = new TextView(this);
+        idpDesc.setText("SSO login domains allowed to navigate (comma-separated)");
+        idpDesc.setTextSize(12);
+        idpDesc.setTextColor(Color.rgb(142, 146, 178));
+        idpDesc.setPadding(0, 0, 0, dp(8));
+        kioskCard.addView(idpDesc);
+
+        LinearLayout idpInputContainer = new LinearLayout(this);
+        idpInputContainer.setOrientation(LinearLayout.HORIZONTAL);
+        idpInputContainer.setGravity(Gravity.CENTER_VERTICAL);
+        idpInputContainer.setPadding(dp(14), 0, dp(8), 0);
+        idpInputContainer.setBackground(roundedBackground(Color.rgb(12, 13, 26), Color.rgb(39, 42, 78), 14));
+
+        idpAllowlist = new EditText(this);
+        idpAllowlist.setSingleLine(true);
+        idpAllowlist.setHint("login.microsoftonline.com, accounts.google.com");
+        idpAllowlist.setHintTextColor(Color.rgb(95, 100, 138));
+        idpAllowlist.setTextColor(Color.WHITE);
+        idpAllowlist.setTextSize(14);
+        idpAllowlist.setPadding(dp(0), dp(12), dp(0), dp(12));
+        idpAllowlist.setBackground(null);
+        
+        idpInputContainer.addView(idpAllowlist, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        
+        idpAllowlist.setOnFocusChangeListener((v, hasFocus) -> {
+            if (hasFocus) {
+                idpInputContainer.setBackground(roundedBackground(Color.rgb(12, 13, 26), colorViolet, 14));
+            } else {
+                idpInputContainer.setBackground(roundedBackground(Color.rgb(12, 13, 26), Color.rgb(39, 42, 78), 14));
+            }
+        });
+
+        LinearLayout.LayoutParams idpParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        idpParams.setMargins(0, dp(4), 0, dp(4));
+        kioskCard.addView(idpInputContainer, idpParams);
+
         form.addView(kioskCard, cardParams());
 
-        // Card 4: Reset actions (Accent Violet)
+        // Card 4: Session Policies
+        LinearLayout sessionCard = card();
+        sessionCard.addView(cardHeader(R.drawable.ic_trash, "Session policy", colorViolet));
+        
+        LinearLayout policyRow = new LinearLayout(this);
+        policyRow.setOrientation(LinearLayout.HORIZONTAL);
+        policyRow.setGravity(Gravity.CENTER_VERTICAL);
+        policyRow.setPadding(0, dp(12), 0, dp(12));
+        policyRow.setClickable(true);
+        policyRow.setBackground(getMenuRowBackground());
+        policyRow.setOnClickListener(v -> showPolicyDialog());
+
+        policyRow.addView(styledIcon(R.drawable.ic_settings, colorViolet));
+
+        LinearLayout policyText = new LinearLayout(this);
+        policyText.setOrientation(LinearLayout.VERTICAL);
+        policyText.setPadding(dp(12), 0, 0, 0);
+
+        TextView policyTitle = new TextView(this);
+        policyTitle.setText("Session clearing policy");
+        policyTitle.setTextSize(15);
+        policyTitle.setTextColor(Color.rgb(229, 231, 235));
+        policyText.addView(policyTitle);
+
+        policyDesc = new TextView(this);
+        policyDesc.setText("Never");
+        policyDesc.setTextSize(12);
+        policyDesc.setTextColor(Color.rgb(142, 146, 178));
+        policyText.addView(policyDesc);
+
+        policyRow.addView(policyText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        
+        ImageView chevron1 = new ImageView(this);
+        chevron1.setImageResource(R.drawable.ic_arrow_forward);
+        chevron1.setImageTintList(ColorStateList.valueOf(Color.rgb(142, 146, 178)));
+        policyRow.addView(chevron1, new LinearLayout.LayoutParams(dp(18), dp(18)));
+        sessionCard.addView(policyRow);
+        
+        sessionCard.addView(divider());
+
+        inactivityRow = new LinearLayout(this);
+        inactivityRow.setOrientation(LinearLayout.HORIZONTAL);
+        inactivityRow.setGravity(Gravity.CENTER_VERTICAL);
+        inactivityRow.setPadding(0, dp(12), 0, dp(12));
+        inactivityRow.setClickable(true);
+        inactivityRow.setBackground(getMenuRowBackground());
+        inactivityRow.setOnClickListener(v -> showInactivityDialog());
+
+        inactivityRow.addView(styledIcon(R.drawable.ic_sun, colorViolet));
+
+        LinearLayout inactivityText = new LinearLayout(this);
+        inactivityText.setOrientation(LinearLayout.VERTICAL);
+        inactivityText.setPadding(dp(12), 0, 0, 0);
+
+        TextView inactivityTitle = new TextView(this);
+        inactivityTitle.setText("Inactivity threshold");
+        inactivityTitle.setTextSize(15);
+        inactivityTitle.setTextColor(Color.rgb(229, 231, 235));
+        inactivityText.addView(inactivityTitle);
+
+        inactivityDesc = new TextView(this);
+        inactivityDesc.setText("15 minutes");
+        inactivityDesc.setTextSize(12);
+        inactivityDesc.setTextColor(Color.rgb(142, 146, 178));
+        inactivityText.addView(inactivityDesc);
+
+        inactivityRow.addView(inactivityText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        
+        ImageView chevron2 = new ImageView(this);
+        chevron2.setImageResource(R.drawable.ic_arrow_forward);
+        chevron2.setImageTintList(ColorStateList.valueOf(Color.rgb(142, 146, 178)));
+        inactivityRow.addView(chevron2, new LinearLayout.LayoutParams(dp(18), dp(18)));
+        sessionCard.addView(inactivityRow);
+
+        form.addView(sessionCard, cardParams());
+
+        // Card 5: Reset actions (Accent Violet)
         LinearLayout actionCard = card();
         actionCard.addView(cardHeader(R.drawable.ic_close, "Reset options", colorViolet));
         actionCard.addView(actionRow(R.drawable.ic_trash, colorViolet, "Clear browser data", "Clears cache, history, cookies, and storage", () -> confirmClearData(), Color.rgb(229, 231, 235)));
@@ -552,10 +692,21 @@ public class SettingsActivity extends Activity {
                 BrowserPreferences.PREVENT_SCREENSHOTS,
                 false
         ));
-        savePasswords.setChecked(preferences.getBoolean(
-                BrowserPreferences.SAVE_PASSWORDS,
+        autofillEnabled.setChecked(preferences.getBoolean(
+                BrowserPreferences.AUTOFILL_ENABLED,
                 true
         ));
+        thirdPartyCookies.setChecked(preferences.getBoolean(
+                BrowserPreferences.THIRD_PARTY_COOKIES_ENABLED,
+                false
+        ));
+        idpAllowlist.setText(preferences.getString(
+                BrowserPreferences.IDP_ALLOWLIST,
+                ""
+        ));
+        selectedPolicy = preferences.getString(BrowserPreferences.SESSION_CLEAR_POLICY, "never");
+        selectedInactivityMins = preferences.getInt(BrowserPreferences.SESSION_INACTIVITY_DURATION_MINS, 15);
+        updatePolicyViews();
     }
 
     private void savePreferences() {
@@ -583,10 +734,28 @@ public class SettingsActivity extends Activity {
                         preventScreenshots.isChecked()
                 )
                 .putBoolean(
-                        BrowserPreferences.SAVE_PASSWORDS,
-                        savePasswords.isChecked()
+                        BrowserPreferences.AUTOFILL_ENABLED,
+                        autofillEnabled.isChecked()
+                )
+                .putBoolean(
+                        BrowserPreferences.THIRD_PARTY_COOKIES_ENABLED,
+                        thirdPartyCookies.isChecked()
+                )
+                .putString(
+                        BrowserPreferences.IDP_ALLOWLIST,
+                        idpAllowlist.getText().toString().trim()
+                )
+                .putString(
+                        BrowserPreferences.SESSION_CLEAR_POLICY,
+                        selectedPolicy
+                )
+                .putInt(
+                        BrowserPreferences.SESSION_INACTIVITY_DURATION_MINS,
+                        selectedInactivityMins
                 )
                 .apply();
+                
+        BrowserSessionManager.getInstance().applySessionPolicy(this);
 
         setResult(RESULT_OK);
         finish();
@@ -669,14 +838,9 @@ public class SettingsActivity extends Activity {
             null
         ));
         btnClear.setOnClickListener(v -> {
-            CookieManager.getInstance().removeAllCookies(null);
-            CookieManager.getInstance().flush();
-            WebStorage.getInstance().deleteAllData();
-            WebView webView = new WebView(this);
-            webView.clearCache(true);
-            webView.clearHistory();
-            webView.destroy();
-            Toast.makeText(this, "Browser data cleared", Toast.LENGTH_SHORT).show();
+            BrowserSessionManager.getInstance().clearSession(this, null, () -> {
+                Toast.makeText(SettingsActivity.this, "Browser data cleared", Toast.LENGTH_SHORT).show();
+            });
             dialog.dismiss();
         });
         dialogButtons.addView(btnClear, new LinearLayout.LayoutParams(0, dp(44), 1));
@@ -694,6 +858,71 @@ public class SettingsActivity extends Activity {
         lp.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;
         dialog.show();
         dialog.getWindow().setAttributes(lp);
+    }
+
+    private void showPolicyDialog() {
+        String[] options = {"Never", "On app start", "After inactivity", "Daily"};
+        final String[] keys = {"never", "app_start", "inactivity", "daily"};
+        int checkedItem = 0;
+        for (int i = 0; i < keys.length; i++) {
+            if (keys[i].equals(selectedPolicy)) {
+                checkedItem = i;
+                break;
+            }
+        }
+        
+        new AlertDialog.Builder(this)
+                .setTitle("Select Clearing Policy")
+                .setSingleChoiceItems(options, checkedItem, (dialog, which) -> {
+                    selectedPolicy = keys[which];
+                    updatePolicyViews();
+                    dialog.dismiss();
+                })
+                .show();
+    }
+
+    private void showInactivityDialog() {
+        String[] options = {"15 minutes", "30 minutes", "1 hour", "2 hours"};
+        final int[] values = {15, 30, 60, 120};
+        int checkedItem = 0;
+        for (int i = 0; i < values.length; i++) {
+            if (values[i] == selectedInactivityMins) {
+                checkedItem = i;
+                break;
+            }
+        }
+        
+        new AlertDialog.Builder(this)
+                .setTitle("Select Inactivity Duration")
+                .setSingleChoiceItems(options, checkedItem, (dialog, which) -> {
+                    selectedInactivityMins = values[which];
+                    updatePolicyViews();
+                    dialog.dismiss();
+                })
+                .show();
+    }
+
+    private void updatePolicyViews() {
+        if (policyDesc == null || inactivityRow == null || inactivityDesc == null) {
+            return;
+        }
+        String policyText = "Never";
+        if ("app_start".equals(selectedPolicy)) {
+            policyText = "On app start";
+        } else if ("inactivity".equals(selectedPolicy)) {
+            policyText = "After inactivity";
+        } else if ("daily".equals(selectedPolicy)) {
+            policyText = "Daily";
+        }
+        policyDesc.setText(policyText);
+        
+        inactivityRow.setVisibility("inactivity".equals(selectedPolicy) ? View.VISIBLE : View.GONE);
+        
+        String timeText = selectedInactivityMins + " minutes";
+        if (selectedInactivityMins >= 60) {
+            timeText = (selectedInactivityMins / 60) + " hour" + (selectedInactivityMins > 60 ? "s" : "");
+        }
+        inactivityDesc.setText(timeText);
     }
 
     private int dp(int value) {

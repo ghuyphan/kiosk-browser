@@ -22,7 +22,10 @@ Download the latest installable APK from the
 - Two-way remote connection status, command acknowledgements, and page-state reporting
 - JavaScript, cookies, DOM storage, authenticated downloads, and file uploads
 - Camera, microphone, and location permission support for websites
-- HTTP support for private-LAN QMS installations
+- HTTPS-only security policy (cleartext HTTP navigation is blocked)
+- Automated session clearing policies (Never, App Start, Touch Inactivity, Daily)
+- Native secure HTTP Basic Auth over HTTPS with secure credential storage
+- OIDC/SAML redirect and popup login flows via secure dialogs with an identity allowlist
 - Optional Android screen pinning, startup-domain restriction, external-app
   blocking, screenshot protection, fullscreen, and keep-awake controls
 - Android 6.0 (API 23) through current Android versions
@@ -67,5 +70,5 @@ The APK supports API 23 and newer. Website compatibility and Chromium security
 updates depend on the installed **Android System WebView** (or Chrome WebView
 provider), so managed devices should keep that component updated.
 
-Invalid HTTPS certificates are blocked. Cleartext HTTP is enabled because many
-private QMS systems still use LAN-only HTTP; prefer HTTPS whenever possible.
+Invalid HTTPS certificates and cleartext HTTP navigation are blocked. Only secure
+HTTPS endpoints are permitted for all primary and identity provider navigation.

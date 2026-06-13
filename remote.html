@@ -12,161 +12,214 @@
             color: #f8fafc;
         }
         * { box-sizing: border-box; }
-        body { margin: 0; padding: 16px; background: #101124; }
-        .app { width: min(100%, 560px); margin: auto; display: grid; gap: 14px; }
-        .card {
-            background: #15172c;
-            border: 1px solid #2d3056;
-            border-radius: 18px;
-            padding: 16px;
-        }
-        .top { display: flex; align-items: center; gap: 12px; }
-        .grow { flex: 1; min-width: 0; }
-        h1 { margin: 0 0 4px; font-size: 18px; }
-        .muted { color: #9297b8; font-size: 12px; }
-        #pageTitle, #pageUrl {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        #pageTitle { margin-top: 12px; font-weight: 600; }
-        #pageUrl { margin-top: 3px; color: #9297b8; font-size: 12px; }
-        .status {
-            padding: 7px 10px;
-            border-radius: 999px;
-            background: #2d3056;
-            font-size: 12px;
-            white-space: nowrap;
-        }
-        .status.connected { color: #34d399; background: #12362f; }
-        .status.error { color: #fb7185; background: #451c2a; }
-        .section-title {
-            margin-bottom: 10px;
-            color: #9297b8;
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: .08em;
-            text-transform: uppercase;
-        }
-        .touchpad {
-            height: 250px;
-            border: 1px solid #3b3f70;
-            border-radius: 16px;
-            background:
-                radial-gradient(circle at center, #25284b 0 2px, transparent 3px),
-                linear-gradient(145deg, #1e203b, #111225);
-            touch-action: none;
-            display: grid;
-            place-items: center;
-            color: #70769f;
-            text-align: center;
-            padding: 30px;
-        }
-        .touchpad.active { border-color: #7c3aed; }
-        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-        .grid.four { grid-template-columns: repeat(4, 1fr); }
-        .row { display: flex; gap: 8px; }
-        button, input, textarea, select {
-            border: 1px solid #343862;
-            border-radius: 12px;
-            background: #1f223f;
+        html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #101124; }
+        button, input, textarea {
+            border: 1px solid #3a3d65;
+            background: #181a31;
             color: #fff;
             font: inherit;
         }
-        button {
-            min-height: 44px;
-            padding: 10px;
-            cursor: pointer;
-            font-weight: 600;
+        button { cursor: pointer; }
+        button:active { background: #2a2d50; }
+        button:disabled { opacity: .35; }
+        .app {
+            width: min(100%, 560px);
+            height: 100dvh;
+            margin: auto;
+            padding: max(10px, env(safe-area-inset-top)) 12px max(8px, env(safe-area-inset-bottom));
+            display: grid;
+            grid-template-rows: 62px minmax(0, 1fr) 58px;
+            gap: 6px;
         }
-        button:active { transform: scale(.97); background: #30345c; }
-        button:disabled { opacity: .38; cursor: default; }
-        button.primary { border-color: #7c3aed; background: #7c3aed; }
-        input, textarea { width: 100%; padding: 12px; outline: none; }
-        textarea { min-height: 74px; resize: vertical; }
-        input:focus, textarea:focus { border-color: #7c3aed; }
-        .row input, .row textarea { flex: 1; min-width: 0; }
-        .row button { flex: 0 0 auto; }
-        .feedback { min-height: 17px; margin-top: 9px; color: #9297b8; font-size: 12px; }
-        .feedback.ok { color: #34d399; }
-        .feedback.error { color: #fb7185; }
-        .hint { margin-top: 9px; color: #70769f; font-size: 11px; text-align: center; }
+        .top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .grow { flex: 1; min-width: 0; }
+        h1 { margin: 0 0 2px; font-size: 19px; font-weight: 600; }
+        #connectionStatus { color: #9297b8; font-size: 13px; }
+        #connectionStatus.connected { color: #34d399; }
+        #connectionStatus.error { color: #fb7185; }
+        #pageTitle, #pageUrl, #feedback {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip: rect(0 0 0 0);
+        }
+        .icon {
+            width: 46px;
+            height: 46px;
+            padding: 0;
+            border: 0;
+            border-radius: 13px;
+            background: transparent;
+            font-size: 23px;
+        }
+        .menu { position: relative; }
+        .menu-popover {
+            position: absolute;
+            z-index: 5;
+            top: 50px;
+            right: 0;
+            width: 210px;
+            padding: 8px;
+            border: 1px solid #3a3d65;
+            border-radius: 14px;
+            background: #1d1f39;
+            box-shadow: 0 14px 40px #0008;
+        }
+        .menu-popover[hidden] { display: none; }
+        .menu-popover button {
+            width: 100%;
+            min-height: 44px;
+            border: 0;
+            border-radius: 9px;
+            background: transparent;
+            text-align: left;
+            padding: 0 12px;
+        }
+        .url-row { display: flex; gap: 8px; padding: 8px 4px 2px; }
+        .url-row input {
+            min-width: 0;
+            width: 100%;
+            height: 44px;
+            padding: 0 12px;
+            border-radius: 10px;
+            outline: none;
+        }
+        .url-row button { min-width: 48px; border-radius: 10px; }
+        .mode-content { min-height: 0; }
+        .panel { height: 100%; min-height: 0; }
+        .panel[hidden] { display: none; }
+        #mousePanel {
+            display: grid;
+            grid-template-rows: minmax(0, 1fr) 52px;
+            gap: 8px;
+        }
+        .touchpad {
+            position: relative;
+            min-height: 0;
+            border: 1px solid #3b3f70;
+            border-radius: 20px;
+            background: #181a31;
+            touch-action: none;
+        }
+        .touchpad.active { border-color: #7c3aed; }
+        .mouse-mark {
+            position: absolute;
+            inset: 50% auto auto 50%;
+            translate: -50% -50%;
+            color: #5b638f;
+            font-size: 42px;
+        }
+        .scroll-rail {
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            translate: 0 -50%;
+            color: #5b638f;
+            line-height: 2;
+            text-align: center;
+        }
+        .mouse-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .mouse-buttons button {
+            border-radius: 14px;
+            color: #9297b8;
+            font-size: 25px;
+        }
+        #keyboardPanel {
+            grid-template-rows: minmax(0, 1fr) 52px 48px;
+            gap: 8px;
+        }
+        #keyboardPanel:not([hidden]) { display: grid; }
+        textarea {
+            width: 100%;
+            min-height: 0;
+            padding: 16px;
+            border-radius: 16px;
+            resize: none;
+            outline: none;
+            font-size: 16px;
+        }
+        textarea:focus, input:focus { border-color: #7c3aed; }
+        .send { border-radius: 14px; border-color: #7c3aed; background: #6d28d9; font-weight: 600; }
+        .key-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+        .key-row button { border-radius: 12px; }
+        .mode-bar {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            align-items: center;
+        }
+        .mode-bar button {
+            height: 48px;
+            border: 1px solid transparent;
+            border-radius: 14px;
+            background: transparent;
+            color: #848bb1;
+            font-size: 23px;
+        }
+        #openWebsiteMode { font-size: 29px; }
+        .mode-bar button.selected {
+            border-color: #7c3aed;
+            background: #281f4e;
+            color: #c4b5fd;
+        }
     </style>
 </head>
 <body>
 <main class="app">
-    <section class="card">
-        <div class="top">
-            <div class="grow">
-                <h1>Kiosk Remote</h1>
-                <div class="muted">Practical website control</div>
+    <header class="top">
+        <div class="grow">
+            <h1>Mouse / Keyboard</h1>
+            <div id="connectionStatus">Connecting</div>
+        </div>
+        <div class="menu">
+            <button id="menuButton" class="icon" aria-label="More controls">⋮</button>
+            <div id="controlMenu" class="menu-popover" hidden>
+                <button data-command="back" id="backButton">←&nbsp;&nbsp; Back</button>
+                <button data-command="forward" id="forwardButton">→&nbsp;&nbsp; Forward</button>
+                <button data-command="reload">↻&nbsp;&nbsp; Reload</button>
+                <button data-command="home">⌂&nbsp;&nbsp; Home</button>
+                <div class="url-row">
+                    <input id="urlInput" type="url" inputmode="url" placeholder="example.com">
+                    <button id="goButton" aria-label="Open website">Go</button>
+                </div>
             </div>
-            <div id="connectionStatus" class="status">Connecting</div>
         </div>
         <div id="pageTitle">Waiting for kiosk...</div>
         <div id="pageUrl"></div>
-        <div id="feedback" class="feedback">Opening secure session</div>
-    </section>
+        <div id="feedback">Opening secure session</div>
+    </header>
 
-    <section class="card">
-        <div class="section-title">Touchpad</div>
-        <div class="row" style="margin-bottom:8px">
-            <button id="touchpadMode" class="primary" style="flex:1">Touchpad</button>
-            <button id="directMode" style="flex:1">Direct touch</button>
-            <select id="sensitivity" aria-label="Pointer sensitivity">
-                <option value=".8">Slow</option>
-                <option value="1.25" selected>Normal</option>
-                <option value="1.8">Fast</option>
-            </select>
-        </div>
-        <div id="touchpad" class="touchpad">
-            Move one finger to control the cursor<br>
-            Tap to click, double tap to double-click
-        </div>
-        <div class="hint">Two-finger movement scrolls. Hold for a long press.</div>
-    </section>
+    <div class="mode-content">
+        <section id="mousePanel" class="panel">
+            <div id="touchpad" class="touchpad" aria-label="Remote trackpad">
+                <span class="mouse-mark" aria-hidden="true">⌁</span>
+                <span class="scroll-rail" aria-hidden="true">⌃<br>│<br>│<br>⌄</span>
+            </div>
+            <div class="mouse-buttons">
+                <button id="leftClickButton" aria-label="Left click"></button>
+                <button id="rightClickButton" aria-label="Right click"></button>
+            </div>
+        </section>
 
-    <section class="card">
-        <div class="section-title">Navigation</div>
-        <div class="grid four">
-            <button data-command="back" id="backButton">Back</button>
-            <button data-command="forward" id="forwardButton">Forward</button>
-            <button data-command="reload">Reload</button>
-            <button data-command="home">Home</button>
-        </div>
-        <div class="row" style="margin-top:8px">
-            <input id="urlInput" type="url" inputmode="url" placeholder="https://example.com">
-            <button id="goButton" class="primary">Go</button>
-        </div>
-    </section>
+        <section id="keyboardPanel" class="panel" hidden>
+            <textarea id="keyboardInput" placeholder="Type on the kiosk"></textarea>
+            <button id="sendTextButton" class="send">Send text</button>
+            <div class="key-row">
+                <button data-key="backspace">⌫</button>
+                <button data-key="tab">Tab</button>
+                <button data-key="escape">Esc</button>
+                <button data-key="enter">Enter</button>
+            </div>
+        </section>
+    </div>
 
-    <section class="card">
-        <div class="section-title">Keyboard</div>
-        <div class="row">
-            <textarea id="keyboardInput" placeholder="Text is inserted at the active cursor"></textarea>
-            <button id="sendTextButton" class="primary">Send</button>
-        </div>
-        <div class="grid four" style="margin-top:8px">
-            <button data-key="backspace">⌫</button>
-            <button data-key="tab">Tab</button>
-            <button data-key="enter">Enter</button>
-            <button data-key="escape">Esc</button>
-            <button data-key="arrowleft">←</button>
-            <button data-key="arrowup">↑</button>
-            <button data-key="arrowdown">↓</button>
-            <button data-key="arrowright">→</button>
-        </div>
-    </section>
-
-    <section class="card">
-        <div class="section-title">Scroll</div>
-        <div class="grid four">
-            <button data-scroll="-700">Page up</button>
-            <button data-scroll="-220">Up</button>
-            <button data-scroll="220">Down</button>
-            <button data-scroll="700">Page down</button>
-        </div>
-    </section>
+    <nav class="mode-bar" aria-label="Controller modes">
+        <button id="touchpadMode" class="selected" aria-label="Mouse mode">⌁</button>
+        <button id="keyboardMode" aria-label="Keyboard mode">⌨</button>
+        <button id="openWebsiteMode" aria-label="Open website">◎</button>
+    </nav>
+    <input id="sensitivity" type="hidden" value="1.25">
 </main>
 
 <script>
@@ -180,6 +233,7 @@
     let connected = false;
     let lastStatusAt = 0;
     let controlMode = "touchpad";
+    let rateLimitedUntil = 0;
 
     const statusElement = document.getElementById("connectionStatus");
     const feedbackElement = document.getElementById("feedback");
@@ -237,6 +291,9 @@
 
     async function sendCommand(action, value = "", options = {}) {
         if (!topic || !secret) throw new Error("Invalid controller link");
+        if (Date.now() < rateLimitedUntil) {
+            throw new Error("Remote service is cooling down");
+        }
         const id = randomId();
         const timestamp = Date.now();
         const payload = {
@@ -253,6 +310,11 @@
             headers: { "Content-Type": "text/plain;charset=UTF-8" },
             body: JSON.stringify(payload)
         });
+        if (response.status === 429) {
+            rateLimitedUntil = Date.now() + 15000;
+            if (!options.quiet) feedback("Too many commands. Pausing briefly.", "error");
+            throw new Error("Remote service is cooling down");
+        }
         if (!response.ok) throw new Error(`Send failed (${response.status})`);
         if (options.noAck) return id;
         return new Promise((resolve, reject) => {
@@ -387,21 +449,42 @@
                 JSON.stringify(payload),
                 { quiet: true, noAck: true }
             ).catch(() => {});
-        }, 80);
+        }, 1000);
     }
 
-    document.getElementById("touchpadMode").addEventListener("click", () => {
+    const controlMenu = document.getElementById("controlMenu");
+    const mousePanel = document.getElementById("mousePanel");
+    const keyboardPanel = document.getElementById("keyboardPanel");
+    const touchpadModeButton = document.getElementById("touchpadMode");
+    const keyboardModeButton = document.getElementById("keyboardMode");
+
+    function showMouseMode() {
         controlMode = "touchpad";
-        document.getElementById("touchpadMode").classList.add("primary");
-        document.getElementById("directMode").classList.remove("primary");
-        touchpad.innerHTML = "Move one finger to control the cursor<br>Tap to click, double tap to double-click";
+        mousePanel.hidden = false;
+        keyboardPanel.hidden = true;
+        touchpadModeButton.classList.add("selected");
+        keyboardModeButton.classList.remove("selected");
+    }
+
+    function showKeyboardMode() {
+        mousePanel.hidden = true;
+        keyboardPanel.hidden = false;
+        touchpadModeButton.classList.remove("selected");
+        keyboardModeButton.classList.add("selected");
+        document.getElementById("keyboardInput").focus();
+    }
+
+    touchpadModeButton.addEventListener("click", showMouseMode);
+    keyboardModeButton.addEventListener("click", showKeyboardMode);
+    document.getElementById("menuButton").addEventListener("click", () => {
+        controlMenu.hidden = !controlMenu.hidden;
     });
-    document.getElementById("directMode").addEventListener("click", () => {
-        controlMode = "direct";
-        document.getElementById("directMode").classList.add("primary");
-        document.getElementById("touchpadMode").classList.remove("primary");
-        touchpad.innerHTML = "This surface maps to the kiosk page<br>Tap the matching location";
+    document.getElementById("openWebsiteMode").addEventListener("click", () => {
+        controlMenu.hidden = false;
+        document.getElementById("urlInput").focus();
     });
+    document.getElementById("leftClickButton").addEventListener("click", () => run("tap"));
+    document.getElementById("rightClickButton").addEventListener("click", () => run("long_press"));
 
     touchpad.addEventListener("pointerdown", event => {
         touchpad.setPointerCapture(event.pointerId);

@@ -29,6 +29,9 @@
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
         <activity
+            android:name=".RemoteControllerActivity"
+            android:exported="false" />
+        <activity
             android:name=".SettingsActivity"
             android:exported="false" />
         <activity

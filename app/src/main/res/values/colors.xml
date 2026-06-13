@@ -1,4 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <color name="bg_midnight">#101124</color>
+    <color name="bg_card">#15172C</color>
+    <color name="border_card">#272A4E</color>
+    <color name="accent_violet">#7C3AED</color>
+    <color name="accent_violet_light">#A78BFA</color>
+    <color name="text_secondary">#8E92B2</color>
+    <color name="text_primary">#E5E7EB</color>
+
+    <!-- Legacy / System references -->
     <color name="brand">#7C3AED</color>
     <color name="brand_dark">#FFFFFF</color>
     <color name="launcher_background">#1A1849</color>

@@ -135,6 +135,19 @@ public class MainActivity extends Activity {
     private float remotePointerY;
     private String pendingWebPermissionOrigin;
     private String[] pendingWebPermissionResources;
+    
+    // Phase 1: Recovery and state tracking
+    private BrowserRecoveryController recoveryController;
+    private boolean hasLoadError = false;
+
+    // Phase 2: Auth, Autofill, and SSO
+    private AuthenticationController authController;
+    private android.app.Dialog popupDialog;
+    private WebView popupWebView;
+
+    // Phase 4: Download and permission controllers
+    private DownloadController downloadController;
+    private PermissionController permissionController;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -174,19 +187,48 @@ public class MainActivity extends Activity {
             decor.setSystemUiVisibility(flags);
         }
 
+        authController = new AuthenticationController(this);
+        downloadController = new DownloadController(this);
+        permissionController = new PermissionController(this);
         buildBrowser();
         applyPreferences(false);
 
-        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
-            Uri launchUri = getIntent().getData();
-            String startUrl = launchUri != null
-                    ? launchUri.toString()
-                    : BrowserPreferences.get(this).getString(
-                            BrowserPreferences.START_URL,
-                            BrowserPreferences.DEFAULT_START_URL
-                    );
-            navigateTo(startUrl, false);
-        }
+        recoveryController = new BrowserRecoveryController(this, new BrowserRecoveryController.RecoveryListener() {
+            @Override
+            public void onReloadRequired() {
+                runOnUiThread(() -> {
+                    if (webView != null) {
+                        Log.d("MainActivity", "Recovery reload triggered");
+                        webView.reload();
+                    }
+                });
+            }
+
+            @Override
+            public void onRenderProcessCrashed() {
+                recreateWebViewAfterCrash();
+            }
+        });
+        recoveryController.startMonitoring();
+
+        BrowserSessionManager.getInstance().checkAndClearSessionOnLaunch(this, webView, () -> {
+            runOnUiThread(() -> {
+                if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
+                    Uri launchUri = getIntent().getData();
+                    if (launchUri != null && isRemoteControllerUrl(launchUri.toString())) {
+                        openNativeRemoteController(launchUri.toString());
+                        launchUri = null;
+                    }
+                    String startUrl = launchUri != null
+                            ? launchUri.toString()
+                            : BrowserPreferences.get(this).getString(
+                                    BrowserPreferences.START_URL,
+                                    BrowserPreferences.DEFAULT_START_URL
+                            );
+                    navigateTo(startUrl, false);
+                }
+            });
+        });
     }
 
     @Override
@@ -195,6 +237,26 @@ public class MainActivity extends Activity {
         if (hasFocus && fullscreenMode) {
             applyFullscreenMode();
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        BrowserSessionManager.getInstance().applySessionPolicy(this);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        BrowserSessionManager.getInstance().stopInactivityMonitoring();
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (ev.getAction() == MotionEvent.ACTION_DOWN) {
+            BrowserSessionManager.getInstance().resetInactivityTimer();
+        }
+        return super.dispatchTouchEvent(ev);
     }
 
 
@@ -247,6 +309,7 @@ public class MainActivity extends Activity {
 
         webViewContainer = new FrameLayout(this);
         webView = new BrowserWebView(this);
+        BrowserSessionManager.getInstance().setActiveWebView(webView);
         configureWebView();
         webViewContainer.addView(webView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -440,7 +503,7 @@ public class MainActivity extends Activity {
         button.setScaleType(ImageView.ScaleType.FIT_CENTER);
         button.setBackground(getToolbarButtonBackground());
         button.setContentDescription(description);
-        button.setPadding(dp(12), dp(12), dp(12), dp(12));
+        button.setPadding(dp(10), dp(10), dp(10), dp(10));
         button.setLayoutParams(new LinearLayout.LayoutParams(dp(40), dp(40)));
         return button;
     }
@@ -495,43 +558,46 @@ public class MainActivity extends Activity {
         securityIcon.setImageTintList(ColorStateList.valueOf(
                 isHttps ? Color.rgb(16, 185, 129) : Color.rgb(156, 163, 175) // green lock vs gray globe
         ));
-        
-        // Entrance scale animation
-        securityIcon.setScaleX(0f);
-        securityIcon.setScaleY(0f);
-        securityIcon.animate()
-                .scaleX(1f)
-                .scaleY(1f)
-                .setDuration(220)
-                .setInterpolator(new android.view.animation.DecelerateInterpolator())
-                .start();
+        securityIcon.animate().cancel();
+        securityIcon.setScaleX(1f);
+        securityIcon.setScaleY(1f);
 
         updateNavigationButtons();
     }
 
-    private void configureWebView() {
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
-        settings.setLoadsImagesAutomatically(true);
-        settings.setSupportZoom(true);
-        settings.setBuiltInZoomControls(true);
-        settings.setDisplayZoomControls(false);
-        settings.setLoadWithOverviewMode(false);
-        settings.setUseWideViewPort(true);
-        settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setAllowFileAccess(false);
-        settings.setAllowContentAccess(true);
-        settings.setAllowFileAccessFromFileURLs(false);
-        settings.setAllowUniversalAccessFromFileURLs(false);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setSupportMultipleWindows(true);
-        settings.setJavaScriptCanOpenWindowsAutomatically(false);
+    private void startReloadAnimation() {
+        if (reloadButton == null || reloadButton.getAnimation() != null) {
+            return;
+        }
+        android.view.animation.RotateAnimation rotate = new android.view.animation.RotateAnimation(
+                0,
+                360,
+                android.view.animation.Animation.RELATIVE_TO_SELF,
+                0.5f,
+                android.view.animation.Animation.RELATIVE_TO_SELF,
+                0.5f
+        );
+        rotate.setDuration(850);
+        rotate.setRepeatCount(android.view.animation.Animation.INFINITE);
+        rotate.setInterpolator(new android.view.animation.LinearInterpolator());
+        reloadButton.startAnimation(rotate);
+    }
 
-        mobileUserAgent = settings.getUserAgentString();
+    private void stopReloadAnimation() {
+        if (reloadButton != null) {
+            reloadButton.clearAnimation();
+            reloadButton.setRotation(0f);
+        }
+    }
+
+    private void configureWebView() {
+        boolean autofill = BrowserPreferences.get(this).getBoolean(BrowserPreferences.AUTOFILL_ENABLED, true);
+        WebViewConfigurator.configureSettings(webView, autofill);
+
+        mobileUserAgent = webView.getSettings().getUserAgentString();
         CookieManager.getInstance().setAcceptCookie(true);
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false);
+        boolean thirdParty = BrowserPreferences.get(this).getBoolean(BrowserPreferences.THIRD_PARTY_COOKIES_ENABLED, false);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, thirdParty);
 
         webView.setWebViewClient(new BrowserClient());
         webView.setWebChromeClient(new BrowserChromeClient());
@@ -546,13 +612,41 @@ public class MainActivity extends Activity {
                 }
             }
         });
-        webView.setDownloadListener(createDownloadListener());
+        if (downloadController != null) {
+            webView.setDownloadListener(downloadController.createDownloadListener());
+        }
         webView.setOnHoverListener((view, event) -> {
             if (event.getActionMasked() == MotionEvent.ACTION_HOVER_MOVE
                     && event.getY() <= dp(24)) {
                 showToolbar(true);
             }
             return false;
+        });
+    }
+
+    private void recreateWebViewAfterCrash() {
+        runOnUiThread(() -> {
+            Log.e("MainActivity", "Recreating WebView after render process crash");
+            if (webView != null) {
+                webViewContainer.removeView(webView);
+                try {
+                    webView.destroy();
+                } catch (Exception e) {
+                    Log.e("MainActivity", "Error destroying crashed WebView", e);
+                }
+            }
+            webView = new BrowserWebView(this);
+            BrowserSessionManager.getInstance().setActiveWebView(webView);
+            configureWebView();
+            webViewContainer.addView(webView, 0, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+            ));
+            
+            // Restore last safe URL
+            String safeUrl = BrowserSessionManager.getInstance().getLastSuccessfulUrl(this);
+            navigateTo(safeUrl, false);
+            Toast.makeText(this, "Recovered from a browser crash", Toast.LENGTH_SHORT).show();
         });
     }
 
@@ -844,9 +938,19 @@ public class MainActivity extends Activity {
     }
 
     private boolean isAllowedKioskHost(Uri uri) {
+        if (uri == null) return false;
+        String host = uri.getHost();
+        if (host == null) return false;
+        
+        // Check IDP allowlist first
+        String allowlist = BrowserPreferences.get(this).getString(BrowserPreferences.IDP_ALLOWLIST, "");
+        if (SecurityPolicy.isHostInAllowlist(host, allowlist)) {
+            return true;
+        }
+
         Uri startUri = Uri.parse(configuredStartUrl);
         return SecurityPolicy.isAllowedKioskHost(
-                uri == null ? null : uri.getHost(),
+                host,
                 startUri.getHost(),
                 restrictToStartHost
         );
@@ -1011,10 +1115,15 @@ public class MainActivity extends Activity {
             showToolbar(false);
         }
 
-        boolean savePasswords = preferences.getBoolean(BrowserPreferences.SAVE_PASSWORDS, true);
+        boolean autofillEnabled = preferences.getBoolean(BrowserPreferences.AUTOFILL_ENABLED, true);
         if (webView != null) {
-            webView.getSettings().setSavePassword(savePasswords);
-            webView.getSettings().setSaveFormData(savePasswords);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                webView.setImportantForAutofill(autofillEnabled ? 
+                        View.IMPORTANT_FOR_AUTOFILL_YES : 
+                        View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
+            }
+            boolean thirdParty = preferences.getBoolean(BrowserPreferences.THIRD_PARTY_COOKIES_ENABLED, false);
+            CookieManager.getInstance().setAcceptThirdPartyCookies(webView, thirdParty);
         }
 
         if (fromSettings) {
@@ -1210,148 +1319,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private DownloadListener createDownloadListener() {
-        return (url, userAgent, contentDisposition, mimeType, contentLength) -> {
-            if (!SecurityPolicy.isAllowedWebUrl(url)) {
-                Toast.makeText(this, "Blocked an unsafe download URL", Toast.LENGTH_LONG).show();
-                return;
-            }
-            PendingDownload download = new PendingDownload(
-                    url, userAgent, contentDisposition, mimeType
-            );
-            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P
-                    && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    != PackageManager.PERMISSION_GRANTED) {
-                pendingDownload = download;
-                requestPermissions(
-                        new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
-                        REQUEST_DOWNLOAD
-                );
-            } else {
-                enqueueDownload(download);
-            }
-        };
-    }
-
-    private void enqueueDownload(PendingDownload download) {
-        try {
-            String fileName = URLUtil.guessFileName(
-                    download.url,
-                    download.contentDisposition,
-                    download.mimeType
-            );
-            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(download.url));
-            request.setTitle(fileName);
-            request.setDescription("Downloading from " + Uri.parse(download.url).getHost());
-            request.setMimeType(download.mimeType);
-            request.addRequestHeader("User-Agent", download.userAgent);
-            String cookies = CookieManager.getInstance().getCookie(download.url);
-            if (cookies != null) {
-                request.addRequestHeader("Cookie", cookies);
-            }
-            request.setNotificationVisibility(
-                    DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
-            );
-            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
-            DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-            manager.enqueue(request);
-            Toast.makeText(this, "Downloading " + fileName, Toast.LENGTH_LONG).show();
-        } catch (Exception error) {
-            Toast.makeText(this, "Download failed: " + error.getMessage(), Toast.LENGTH_LONG).show();
-        }
-    }
-
-    private void requestWebPermissions(PermissionRequest request) {
-        Uri origin = request.getOrigin();
-        if (!isAllowedPermissionOrigin(origin)) {
-            request.deny();
-            return;
-        }
-        List<String> missing = new ArrayList<>();
-        List<String> supportedResources = new ArrayList<>();
-        for (String resource : request.getResources()) {
-            if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) {
-                supportedResources.add(resource);
-                if (checkSelfPermission(Manifest.permission.CAMERA)
-                        != PackageManager.PERMISSION_GRANTED) {
-                    missing.add(Manifest.permission.CAMERA);
-                }
-            } else if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
-                supportedResources.add(resource);
-                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
-                        != PackageManager.PERMISSION_GRANTED) {
-                    missing.add(Manifest.permission.RECORD_AUDIO);
-                }
-            }
-        }
-
-        if (supportedResources.isEmpty()) {
-            request.deny();
-            return;
-        }
-        String originLabel = origin.getScheme() + "://" + origin.getAuthority();
-        new AlertDialog.Builder(this)
-                .setTitle("Allow website access?")
-                .setMessage(originLabel + " wants to use "
-                        + describeWebResources(supportedResources) + ".")
-                .setNegativeButton("Block", (dialog, which) -> request.deny())
-                .setPositiveButton("Allow", (dialog, which) -> {
-                    if (missing.isEmpty()) {
-                        request.grant(supportedResources.toArray(new String[0]));
-                    } else {
-                        webPermissionRequest = request;
-                        pendingWebPermissionOrigin = originLabel;
-                        pendingWebPermissionResources = supportedResources.toArray(new String[0]);
-                        requestPermissions(
-                                missing.toArray(new String[0]),
-                                REQUEST_WEB_PERMISSIONS
-                        );
-                    }
-                })
-                .setOnCancelListener(dialog -> request.deny())
-                .show();
-    }
-
-    private boolean isAllowedPermissionOrigin(Uri origin) {
-        if (origin == null || origin.getHost() == null) {
-            return false;
-        }
-        String scheme = origin.getScheme();
-        if (!"https".equalsIgnoreCase(scheme) && !"http".equalsIgnoreCase(scheme)) {
-            return false;
-        }
-        Uri current = Uri.parse(webView.getUrl() == null ? "" : webView.getUrl());
-        return current.getAuthority() != null
-                && current.getAuthority().equalsIgnoreCase(origin.getAuthority())
-                && isAllowedKioskHost(origin);
-    }
-
-    private String describeWebResources(List<String> resources) {
-        boolean camera = resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE);
-        boolean microphone = resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE);
-        return camera && microphone ? "your camera and microphone"
-                : camera ? "your camera" : "your microphone";
-    }
-
-    private boolean allPermissionsGranted(int[] grantResults) {
-        if (grantResults.length == 0) {
-            return false;
-        }
-        for (int result : grantResults) {
-            if (result != PackageManager.PERMISSION_GRANTED) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private boolean hasLocationPermission() {
-        return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
-                == PackageManager.PERMISSION_GRANTED
-                || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
-                == PackageManager.PERMISSION_GRANTED;
-    }
-
     @Override
     public void onRequestPermissionsResult(
             int requestCode,
@@ -1359,34 +1326,14 @@ public class MainActivity extends Activity {
             int[] grantResults
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_WEB_PERMISSIONS && webPermissionRequest != null) {
-            if (allPermissionsGranted(grantResults)
-                    && pendingWebPermissionOrigin != null
-                    && isAllowedPermissionOrigin(Uri.parse(pendingWebPermissionOrigin))) {
-                webPermissionRequest.grant(pendingWebPermissionResources);
-            } else {
-                webPermissionRequest.deny();
+        if (requestCode == REQUEST_WEB_PERMISSIONS || requestCode == REQUEST_LOCATION) {
+            if (permissionController != null) {
+                permissionController.handlePermissionResult(requestCode, grantResults, webView, restrictToStartHost, configuredStartUrl);
             }
-            webPermissionRequest = null;
-            pendingWebPermissionOrigin = null;
-            pendingWebPermissionResources = null;
-        } else if (requestCode == REQUEST_LOCATION && geolocationCallback != null) {
-            geolocationCallback.invoke(
-                    geolocationOrigin,
-                    hasLocationPermission()
-                            && isAllowedPermissionOrigin(Uri.parse(geolocationOrigin)),
-                    false
-            );
-            geolocationCallback = null;
-            geolocationOrigin = null;
-        } else if (requestCode == REQUEST_DOWNLOAD && pendingDownload != null) {
-            if (allPermissionsGranted(grantResults)) {
-                enqueueDownload(pendingDownload);
-            } else {
-                Toast.makeText(this, "Storage permission is needed to download", Toast.LENGTH_LONG)
-                        .show();
+        } else if (requestCode == REQUEST_DOWNLOAD) {
+            if (downloadController != null) {
+                downloadController.handlePermissionResult(grantResults);
             }
-            pendingDownload = null;
         }
     }
 
@@ -1416,14 +1363,12 @@ public class MainActivity extends Activity {
                 if (scanResult == null) {
                     scanResult = data.getDataString();
                 }
-                if (scanResult != null && (scanResult.startsWith("http://") || scanResult.startsWith("https://"))) {
-                    if (navigateTo(scanResult, true)) {
-                        Toast.makeText(
-                                this,
-                                "Connecting to: " + scanResult,
-                                Toast.LENGTH_SHORT
-                        ).show();
-                    }
+                if (isRemoteControllerUrl(scanResult)) {
+                    openNativeRemoteController(scanResult);
+                } else if (scanResult != null
+                        && (scanResult.startsWith("http://")
+                        || scanResult.startsWith("https://"))) {
+                    navigateTo(scanResult, true);
                 } else {
                     Toast.makeText(this, "Invalid QR code URL", Toast.LENGTH_SHORT).show();
                 }
@@ -1460,6 +1405,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         uiHandler.removeCallbacksAndMessages(null);
+        if (recoveryController != null) {
+            recoveryController.stopMonitoring();
+        }
         if (remoteClient != null) {
             remoteClient.stop();
             remoteClient = null;
@@ -1495,6 +1443,64 @@ public class MainActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
+    private boolean openExternalIfNeeded(Uri uri) {
+        String url = uri.toString();
+        if (url.startsWith("intent://")) {
+            if (blockExternalApps) {
+                Toast.makeText(MainActivity.this, "Opening other apps is disabled", Toast.LENGTH_SHORT).show();
+                return true;
+            }
+            try {
+                Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+                if (intent != null) {
+                    if (getPackageManager().resolveActivity(intent, 0) != null) {
+                        startActivity(intent);
+                        return true;
+                    }
+                    String fallbackUrl = intent.getStringExtra("browser_fallback_url");
+                    if (fallbackUrl != null && fallbackUrl.startsWith("https://")) {
+                        webView.loadUrl(fallbackUrl);
+                        return true;
+                    }
+                }
+            } catch (Exception e) {
+                Log.e("MainActivity", "Error parsing intent URL", e);
+            }
+            Toast.makeText(MainActivity.this, "No app can open this link", Toast.LENGTH_SHORT).show();
+            return true;
+        }
+
+        String scheme = uri.getScheme();
+        if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
+            if (!SecurityPolicy.isAllowedWebUrl(uri.toString())
+                    || !isAllowedKioskHost(uri)) {
+                Toast.makeText(
+                        MainActivity.this,
+                        "Navigation is limited to the startup website",
+                        Toast.LENGTH_SHORT
+                ).show();
+                return true;
+            }
+            return false;
+        }
+        if (blockExternalApps) {
+            Toast.makeText(
+                    MainActivity.this,
+                    "Opening other apps is disabled",
+                    Toast.LENGTH_SHORT
+            ).show();
+            return true;
+        }
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+            startActivity(intent);
+        } catch (ActivityNotFoundException error) {
+            Toast.makeText(MainActivity.this, "No app can open this link", Toast.LENGTH_SHORT)
+                    .show();
+        }
+        return true;
+    }
+
     private final class BrowserClient extends WebViewClient {
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -1506,42 +1512,14 @@ public class MainActivity extends Activity {
             return openExternalIfNeeded(Uri.parse(url));
         }
 
-        private boolean openExternalIfNeeded(Uri uri) {
-            String scheme = uri.getScheme();
-            if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
-                if (!SecurityPolicy.isAllowedWebUrl(uri.toString())
-                        || !isAllowedKioskHost(uri)) {
-                    Toast.makeText(
-                            MainActivity.this,
-                            "Navigation is limited to the startup website",
-                            Toast.LENGTH_SHORT
-                    ).show();
-                    return true;
-                }
-                return false;
-            }
-            if (blockExternalApps) {
-                Toast.makeText(
-                        MainActivity.this,
-                        "Opening other apps is disabled",
-                        Toast.LENGTH_SHORT
-                ).show();
-                return true;
-            }
-            try {
-                Intent intent = new Intent(Intent.ACTION_VIEW, uri);
-                startActivity(intent);
-            } catch (ActivityNotFoundException error) {
-                Toast.makeText(MainActivity.this, "No app can open this link", Toast.LENGTH_SHORT)
-                        .show();
-            }
-            return true;
-        }
+
 
 
 
         @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
+            hasLoadError = false;
+            BrowserSessionManager.getInstance().setCurrentUrl(url);
             Uri uri = Uri.parse(url);
             if (("http".equalsIgnoreCase(uri.getScheme())
                     || "https".equalsIgnoreCase(uri.getScheme()))
@@ -1555,6 +1533,7 @@ public class MainActivity extends Activity {
                 ).show();
                 return;
             }
+            startReloadAnimation();
             updateAddressState(url);
             if (toolbarVisible) {
                 progressBar.setVisibility(View.VISIBLE);
@@ -1569,12 +1548,19 @@ public class MainActivity extends Activity {
 
         @Override
         public void onPageFinished(WebView view, String url) {
+            stopReloadAnimation();
             updateAddressState(url);
             progressBar.setVisibility(View.GONE);
             scheduleToolbarHide();
             if (isRefreshing) {
                 hidePullIndicator();
                 isRefreshing = false;
+            }
+            if (!hasLoadError) {
+                BrowserSessionManager.getInstance().setLastSuccessfulUrl(MainActivity.this, url);
+                if (recoveryController != null) {
+                    recoveryController.handlePagePageFinished();
+                }
             }
             sendRemotePageStatus();
         }
@@ -1586,6 +1572,8 @@ public class MainActivity extends Activity {
                 WebResourceError error
         ) {
             if (request.isForMainFrame()) {
+                hasLoadError = true;
+                stopReloadAnimation();
                 Toast.makeText(
                         MainActivity.this,
                         "Page failed to load: " + error.getDescription(),
@@ -1594,6 +1582,9 @@ public class MainActivity extends Activity {
                 if (isRefreshing) {
                     hidePullIndicator();
                     isRefreshing = false;
+                }
+                if (recoveryController != null) {
+                    recoveryController.handleNetworkFailure();
                 }
             }
         }
@@ -1604,12 +1595,37 @@ public class MainActivity extends Activity {
                 SslErrorHandler handler,
                 android.net.http.SslError error
         ) {
+            hasLoadError = true;
             handler.cancel();
             Toast.makeText(
                     MainActivity.this,
                     "Blocked an invalid HTTPS certificate",
                     Toast.LENGTH_LONG
             ).show();
+            if (recoveryController != null) {
+                recoveryController.handleNetworkFailure();
+            }
+        }
+
+        @Override
+        public void onReceivedHttpAuthRequest(
+                WebView view,
+                android.webkit.HttpAuthHandler handler,
+                String host,
+                String realm
+        ) {
+            if (authController != null) {
+                authController.handleHttpAuthRequest(view, handler, host, realm);
+            } else {
+                handler.cancel();
+            }
+        }
+
+        @Override
+        public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+            Log.e("MainActivity", "Render process crashed or was killed by the system.");
+            recreateWebViewAfterCrash();
+            return true;
         }
     }
 
@@ -1655,16 +1671,18 @@ public class MainActivity extends Activity {
 
         @Override
         public void onPermissionRequest(PermissionRequest request) {
-            runOnUiThread(() -> requestWebPermissions(request));
+            runOnUiThread(() -> {
+                if (permissionController != null) {
+                    permissionController.handlePermissionRequest(request, webView, restrictToStartHost, configuredStartUrl);
+                } else {
+                    request.deny();
+                }
+            });
         }
 
         @Override
         public void onPermissionRequestCanceled(PermissionRequest request) {
-            if (request == webPermissionRequest) {
-                webPermissionRequest = null;
-                pendingWebPermissionOrigin = null;
-                pendingWebPermissionResources = null;
-            }
+            // Handled inside PermissionController if needed, else ignore
         }
 
         @Override
@@ -1672,33 +1690,11 @@ public class MainActivity extends Activity {
                 String origin,
                 GeolocationPermissions.Callback callback
         ) {
-            Uri originUri = Uri.parse(origin);
-            if (!isAllowedPermissionOrigin(originUri)) {
+            if (permissionController != null) {
+                permissionController.handleGeolocationPermissionsShowPrompt(origin, callback, webView, restrictToStartHost, configuredStartUrl);
+            } else {
                 callback.invoke(origin, false, false);
-                return;
             }
-            new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Allow location access?")
-                    .setMessage(origin + " wants to use this device's location.")
-                    .setNegativeButton("Block", (dialog, which) ->
-                            callback.invoke(origin, false, false))
-                    .setPositiveButton("Allow", (dialog, which) -> {
-                        if (hasLocationPermission()) {
-                            callback.invoke(origin, true, false);
-                        } else {
-                            geolocationOrigin = origin;
-                            geolocationCallback = callback;
-                            requestPermissions(
-                                    new String[]{
-                                            Manifest.permission.ACCESS_COARSE_LOCATION,
-                                            Manifest.permission.ACCESS_FINE_LOCATION
-                                    },
-                                    REQUEST_LOCATION
-                            );
-                        }
-                    })
-                    .setOnCancelListener(dialog -> callback.invoke(origin, false, false))
-                    .show();
         }
 
         @Override
@@ -1708,56 +1704,111 @@ public class MainActivity extends Activity {
                 boolean isUserGesture,
                 android.os.Message resultMsg
         ) {
-            WebView popup = new WebView(MainActivity.this);
-            popup.setWebViewClient(new WebViewClient() {
-                private boolean checkAndLoad(String url) {
-                    if (url == null || url.equals("about:blank")) {
-                        return false;
+            if (popupDialog != null) {
+                popupDialog.dismiss();
+            }
+
+            popupDialog = new android.app.Dialog(MainActivity.this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+            
+            LinearLayout layout = new LinearLayout(MainActivity.this);
+            layout.setOrientation(LinearLayout.VERTICAL);
+            layout.setBackgroundColor(Color.rgb(16, 17, 36));
+            
+            LinearLayout header = new LinearLayout(MainActivity.this);
+            header.setOrientation(LinearLayout.HORIZONTAL);
+            header.setGravity(Gravity.CENTER_VERTICAL);
+            header.setPadding(dp(16), dp(12), dp(16), dp(12));
+            header.setBackgroundColor(Color.rgb(21, 23, 44));
+            
+            TextView title = new TextView(MainActivity.this);
+            title.setText("Authentication / Sign In");
+            title.setTextColor(Color.WHITE);
+            title.setTextSize(16);
+            title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            header.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            
+            ImageButton closeBtn = new ImageButton(MainActivity.this);
+            closeBtn.setImageResource(R.drawable.ic_close);
+            closeBtn.setImageTintList(ColorStateList.valueOf(Color.rgb(229, 231, 235)));
+            closeBtn.setBackground(getToolbarButtonBackground());
+            closeBtn.setPadding(dp(8), dp(8), dp(8), dp(8));
+            closeBtn.setOnClickListener(v -> popupDialog.dismiss());
+            header.addView(closeBtn, new LinearLayout.LayoutParams(dp(36), dp(36)));
+            
+            layout.addView(header, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            
+            popupWebView = new WebView(MainActivity.this);
+            applyPopupWebViewSettings(popupWebView);
+            
+            layout.addView(popupWebView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            popupDialog.setContentView(layout);
+            
+            popupWebView.setWebViewClient(new WebViewClient() {
+                @Override
+                public boolean shouldOverrideUrlLoading(WebView popupView, WebResourceRequest request) {
+                    return handlePopupNavigation(request.getUrl());
+                }
+                
+                @Override
+                public boolean shouldOverrideUrlLoading(WebView popupView, String url) {
+                    return handlePopupNavigation(Uri.parse(url));
+                }
+                
+                private boolean handlePopupNavigation(Uri uri) {
+                    if (openExternalIfNeeded(uri)) {
+                        return true;
                     }
-                    Uri uri = Uri.parse(url);
-                    if (!isAllowedKioskHost(uri)) {
-                        Toast.makeText(
-                                MainActivity.this,
-                                "Navigation is limited to the startup website",
-                                Toast.LENGTH_SHORT
-                        ).show();
-                        return false;
-                    }
-                    return navigateTo(url, true);
+                    return false;
                 }
 
                 @Override
-                public boolean shouldOverrideUrlLoading(
-                        WebView popupView,
-                        WebResourceRequest request
-                ) {
-                    checkAndLoad(request.getUrl().toString());
-                    popupView.destroy();
-                    return true;
-                }
-
-                @Override
-                public boolean shouldOverrideUrlLoading(
-                        WebView popupView,
-                        String url
-                ) {
-                    checkAndLoad(url);
-                    popupView.destroy();
-                    return true;
-                }
-
-                @Override
-                public void onPageStarted(WebView popupView, String url, Bitmap favicon) {
-                    if (checkAndLoad(url)) {
-                        popupView.stopLoading();
-                        popupView.destroy();
+                public void onReceivedHttpAuthRequest(WebView view, android.webkit.HttpAuthHandler handler, String host, String realm) {
+                    if (authController != null) {
+                        authController.handleHttpAuthRequest(view, handler, host, realm);
+                    } else {
+                        handler.cancel();
                     }
                 }
             });
+            
+            popupWebView.setWebChromeClient(new WebChromeClient() {
+                @Override
+                public void onCloseWindow(WebView window) {
+                    super.onCloseWindow(window);
+                    if (popupDialog != null) {
+                        popupDialog.dismiss();
+                    }
+                }
+            });
+            
+            popupDialog.setOnDismissListener(dialogInterface -> {
+                if (popupWebView != null) {
+                    popupWebView.destroy();
+                    popupWebView = null;
+                }
+                popupDialog = null;
+            });
+            
+            popupDialog.show();
+            
             WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
-            transport.setWebView(popup);
+            transport.setWebView(popupWebView);
             resultMsg.sendToTarget();
             return true;
+        }
+
+        private void applyPopupWebViewSettings(WebView popup) {
+            WebSettings settings = popup.getSettings();
+            WebSettings mainSettings = webView.getSettings();
+            settings.setJavaScriptEnabled(mainSettings.getJavaScriptEnabled());
+            settings.setDomStorageEnabled(mainSettings.getDomStorageEnabled());
+            settings.setDatabaseEnabled(mainSettings.getDatabaseEnabled());
+            settings.setSupportMultipleWindows(true);
+            settings.setJavaScriptCanOpenWindowsAutomatically(mainSettings.getJavaScriptCanOpenWindowsAutomatically());
+            
+            boolean acceptThirdParty = BrowserPreferences.get(MainActivity.this).getBoolean(BrowserPreferences.THIRD_PARTY_COOKIES_ENABLED, false);
+            CookieManager.getInstance().setAcceptThirdPartyCookies(popup, acceptThirdParty);
+            CookieManager.getInstance().setAcceptCookie(true);
         }
 
         @Override
@@ -1853,12 +1904,6 @@ public class MainActivity extends Activity {
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setView(container)
                 .create();
-        remoteControlDialog = dialog;
-        dialog.setOnDismissListener(ignored -> {
-            if (remoteControlDialog == dialog) {
-                remoteControlDialog = null;
-            }
-        });
         
         if (dialog.getWindow() != null) {
             GradientDrawable bg = new GradientDrawable();
@@ -2035,6 +2080,12 @@ public class MainActivity extends Activity {
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setView(container)
                 .create();
+        remoteControlDialog = dialog;
+        dialog.setOnDismissListener(ignored -> {
+            if (remoteControlDialog == dialog) {
+                remoteControlDialog = null;
+            }
+        });
 
         scanBtn.setOnClickListener(v -> {
             dialog.dismiss();
@@ -2159,14 +2210,12 @@ public class MainActivity extends Activity {
             scanner.startScan()
                     .addOnSuccessListener(barcode -> {
                         String scanResult = barcode.getRawValue();
-                        if (scanResult != null && (scanResult.startsWith("http://") || scanResult.startsWith("https://"))) {
-                            if (navigateTo(scanResult, true)) {
-                                Toast.makeText(
-                                        MainActivity.this,
-                                        "Connecting to: " + scanResult,
-                                        Toast.LENGTH_SHORT
-                                ).show();
-                            }
+                        if (isRemoteControllerUrl(scanResult)) {
+                            openNativeRemoteController(scanResult);
+                        } else if (scanResult != null
+                                && (scanResult.startsWith("http://")
+                                || scanResult.startsWith("https://"))) {
+                            navigateTo(scanResult, true);
                         } else {
                             Toast.makeText(MainActivity.this, "Invalid QR code URL", Toast.LENGTH_SHORT).show();
                         }
@@ -2249,6 +2298,28 @@ public class MainActivity extends Activity {
                         () -> handleRemoteCommand(commandId, action, value)
                 )
         );
+    }
+
+    private boolean isRemoteControllerUrl(String value) {
+        if (value == null) {
+            return false;
+        }
+        Uri uri = Uri.parse(value);
+        String fragment = uri.getFragment();
+        if (fragment == null || uri.getPath() == null
+                || !uri.getPath().endsWith("/remote.html")) {
+            return false;
+        }
+        android.net.UrlQuerySanitizer sanitizer = new android.net.UrlQuerySanitizer();
+        sanitizer.setAllowUnregisteredParamaters(true);
+        sanitizer.parseQuery(fragment);
+        return sanitizer.getValue("topic") != null && sanitizer.getValue("secret") != null;
+    }
+
+    private void openNativeRemoteController(String controllerUrl) {
+        Intent intent = new Intent(this, RemoteControllerActivity.class);
+        intent.putExtra(RemoteControllerActivity.EXTRA_CONTROLLER_URL, controllerUrl);
+        startActivity(intent);
     }
 
     private void handleRemoteCommand(String commandId, String action, String value) {

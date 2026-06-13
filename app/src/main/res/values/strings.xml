@@ -1,3 +1,15 @@
 <resources>
     <string name="app_name">Kiosk Browser</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_cancel">Cancel</string>
+    <string name="settings_save">Save settings</string>
+    
+    <string name="settings_section_startup">Startup website</string>
+    <string name="settings_section_display">Display settings</string>
+    <string name="settings_section_kiosk">Kiosk controls</string>
+    <string name="settings_section_session">Session policy</string>
+    <string name="settings_section_reset">Reset options</string>
+    
+    <string name="settings_clear_data_title">Clear browser data</string>
+    <string name="settings_clear_data_desc">Clears cache, history, cookies, and storage</string>
 </resources>
