@@ -234,6 +234,7 @@
     let lastStatusAt = 0;
     let controlMode = "touchpad";
     let rateLimitedUntil = 0;
+    const sentTimestamps = [];
 
     const statusElement = document.getElementById("connectionStatus");
     const feedbackElement = document.getElementById("feedback");
@@ -293,6 +294,11 @@
         if (!topic || !secret) throw new Error("Invalid controller link");
         if (Date.now() < rateLimitedUntil) {
             throw new Error("Remote service is cooling down");
+        }
+        const now = Date.now();
+        sentTimestamps.push(now);
+        while (sentTimestamps.length && sentTimestamps[0] < now - 5000) {
+            sentTimestamps.shift();
         }
         const id = randomId();
         const timestamp = Date.now();
@@ -433,6 +439,14 @@
         accumulatedX += dx;
         accumulatedY += dy;
         if (movementTimer) return;
+        const now = Date.now();
+        const recentCount = sentTimestamps.filter(t => t > now - 5000).length;
+        let delay = 150;
+        if (recentCount > 12) {
+            delay = 600;
+        } else if (recentCount > 6) {
+            delay = 300;
+        }
         movementTimer = setTimeout(() => {
             const payload = scrolling
                 ? { dx: Math.round(-accumulatedX * 2), dy: Math.round(-accumulatedY * 2) }
@@ -449,7 +463,7 @@
                 JSON.stringify(payload),
                 { quiet: true, noAck: true }
             ).catch(() => {});
-        }, 500);
+        }, delay);
     }
 
     const controlMenu = document.getElementById("controlMenu");
