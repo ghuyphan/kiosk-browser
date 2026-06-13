@@ -21,7 +21,8 @@ final class RemoteCommandPolicy {
             "double_tap",
             "long_press",
             "scroll",
-            "page_status"
+            "page_status",
+            "disconnect"
     ));
 
     private RemoteCommandPolicy() {

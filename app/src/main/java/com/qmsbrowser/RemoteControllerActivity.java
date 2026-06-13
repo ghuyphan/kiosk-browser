@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.net.UrlQuerySanitizer;
 import android.os.Bundle;
@@ -28,6 +29,7 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
+import android.widget.PopupWindow;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -36,13 +38,13 @@ import org.json.JSONObject;
 public class RemoteControllerActivity extends Activity {
     public static final String EXTRA_CONTROLLER_URL = "controller_url";
     private static final long MOVEMENT_INTERVAL_MS = 800;
-    private static final int BACKGROUND = Color.rgb(16, 17, 36);
-    private static final int SURFACE = Color.rgb(24, 26, 49);
-    private static final int SURFACE_RAISED = Color.rgb(31, 34, 63);
-    private static final int BORDER = Color.rgb(58, 61, 101);
-    private static final int MUTED = Color.rgb(132, 139, 177);
+    private static final int BACKGROUND = Color.rgb(15, 23, 31);
+    private static final int SURFACE = Color.rgb(37, 75, 105);
+    private static final int SURFACE_RAISED = Color.rgb(29, 42, 54);
+    private static final int BORDER = Color.rgb(57, 74, 88);
+    private static final int MUTED = Color.rgb(145, 160, 173);
     private static final int ICON = Color.rgb(203, 213, 225);
-    private static final int ACCENT = Color.rgb(124, 58, 237);
+    private static final int ACCENT = Color.rgb(65, 139, 184);
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private RemoteCommandSender sender;
@@ -79,6 +81,14 @@ public class RemoteControllerActivity extends Activity {
         send("hello", "{\"name\":\"Android controller\"}", false);
     }
 
+    @Override
+    protected void onDestroy() {
+        if (sender != null) {
+            send("disconnect", "", false);
+        }
+        super.onDestroy();
+    }
+
     private void buildUi() {
         getWindow().setStatusBarColor(BACKGROUND);
         getWindow().setNavigationBarColor(BACKGROUND);
@@ -98,7 +108,7 @@ public class RemoteControllerActivity extends Activity {
 
         root.addView(buildHeader(), new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(64)
+                dp(60)
         ));
 
         modeContent = new FrameLayout(this);
@@ -114,7 +124,7 @@ public class RemoteControllerActivity extends Activity {
 
         root.addView(buildModeBar(), new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(58)
+                dp(60)
         ));
 
         setContentView(root);
@@ -125,7 +135,7 @@ public class RemoteControllerActivity extends Activity {
     private View buildHeader() {
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(8), dp(4), dp(8), dp(4));
+        header.setPadding(dp(8), dp(2), dp(8), dp(2));
 
         ImageButton close = plainIconButton(R.drawable.ic_arrow_back, "Close remote control");
         close.setOnClickListener(ignored -> finish());
@@ -134,7 +144,7 @@ public class RemoteControllerActivity extends Activity {
         LinearLayout labels = new LinearLayout(this);
         labels.setOrientation(LinearLayout.VERTICAL);
         labels.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = text("Mouse / Keyboard", 19, Color.WHITE);
+        TextView title = text("Remote control", 18, Color.WHITE);
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         labels.addView(title);
         connectionStatus = text("Connecting", 13, MUTED);
@@ -150,19 +160,19 @@ public class RemoteControllerActivity extends Activity {
     private View buildMousePanel() {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(12), dp(4), dp(12), dp(10));
+        panel.setPadding(dp(12), dp(6), dp(12), dp(10));
 
         FrameLayout trackpad = new FrameLayout(this);
-        trackpad.setBackground(roundedBackground(SURFACE, BORDER, 20));
+        trackpad.setBackground(roundedBackground(SURFACE, SURFACE, 18));
         trackpad.setOnTouchListener(this::handleTrackpadTouch);
 
         ImageView mouseGlyph = new ImageView(this);
         mouseGlyph.setImageResource(R.drawable.ic_mouse);
-        mouseGlyph.setImageTintList(ColorStateList.valueOf(Color.rgb(91, 99, 145)));
-        FrameLayout.LayoutParams glyphParams = new FrameLayout.LayoutParams(dp(46), dp(46), Gravity.CENTER);
+        mouseGlyph.setImageTintList(ColorStateList.valueOf(Color.argb(110, 255, 255, 255)));
+        FrameLayout.LayoutParams glyphParams = new FrameLayout.LayoutParams(dp(38), dp(38), Gravity.CENTER);
         trackpad.addView(mouseGlyph, glyphParams);
 
-        TextView scrollRail = text("⌃\n│\n│\n⌄", 18, Color.rgb(91, 99, 145));
+        TextView scrollRail = text("⌃\n│\n│\n⌄", 18, Color.argb(100, 255, 255, 255));
         scrollRail.setGravity(Gravity.CENTER);
         FrameLayout.LayoutParams railParams = new FrameLayout.LayoutParams(dp(34), dp(154), Gravity.END | Gravity.CENTER_VERTICAL);
         railParams.rightMargin = dp(10);
@@ -176,8 +186,8 @@ public class RemoteControllerActivity extends Activity {
 
         LinearLayout mouseButtons = new LinearLayout(this);
         mouseButtons.setPadding(0, dp(8), 0, 0);
-        View leftClick = mouseButton("Left click", () -> send("tap", "", true));
-        View rightClick = mouseButton("Right click", () -> send("long_press", "", true));
+        View leftClick = mouseButton("Left", "Left click", () -> send("tap", "", true));
+        View rightClick = mouseButton("Right", "Right click", () -> send("long_press", "", true));
         LinearLayout.LayoutParams clickParams = new LinearLayout.LayoutParams(0, dp(52), 1);
         clickParams.rightMargin = dp(4);
         mouseButtons.addView(leftClick, clickParams);
@@ -193,12 +203,8 @@ public class RemoteControllerActivity extends Activity {
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(12), dp(4), dp(12), dp(10));
 
-        TextView prompt = text("Type on the kiosk", 14, MUTED);
-        prompt.setPadding(dp(2), dp(2), 0, dp(10));
-        panel.addView(prompt);
-
         EditText keyboardInput = input(
-                "Text is inserted at the active cursor",
+                "Type here",
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
         );
         keyboardInput.setGravity(Gravity.TOP);
@@ -242,12 +248,8 @@ public class RemoteControllerActivity extends Activity {
 
         mouseModeButton = modeButton(R.drawable.ic_mouse, "Mouse mode", view -> showMouseMode());
         keyboardModeButton = modeButton(R.drawable.ic_keyboard, "Keyboard mode", view -> showKeyboardMode());
-        ImageButton navigateButton = modeButton(R.drawable.ic_globe, "Open website", view -> showUrlDialog());
-        navigateButton.setPadding(dp(8), dp(8), dp(8), dp(8));
-
         bar.addView(mouseModeButton, equalModeParams());
         bar.addView(keyboardModeButton, equalModeParams());
-        bar.addView(navigateButton, equalModeParams());
         return bar;
     }
 
@@ -267,22 +269,81 @@ public class RemoteControllerActivity extends Activity {
     }
 
     private void showControlMenu(View anchor) {
-        PopupMenu menu = new PopupMenu(this, anchor);
-        menu.getMenu().add("Back").setIcon(R.drawable.ic_arrow_back);
-        menu.getMenu().add("Forward").setIcon(R.drawable.ic_arrow_forward);
-        menu.getMenu().add("Reload").setIcon(R.drawable.ic_refresh);
-        menu.getMenu().add("Home").setIcon(R.drawable.ic_home);
-        menu.getMenu().add("Open website").setIcon(R.drawable.ic_globe);
-        menu.setOnMenuItemClickListener(item -> {
-            String title = item.getTitle().toString();
-            if ("Open website".equals(title)) {
-                showUrlDialog();
-            } else {
-                send(title.toLowerCase(java.util.Locale.US), "", true);
-            }
-            return true;
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setBackground(roundedBackground(SURFACE_RAISED, BORDER, 18));
+        menu.setElevation(dp(12));
+
+        PopupWindow popup = new PopupWindow(
+                menu,
+                dp(220),
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                true
+        );
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        popup.setElevation(dp(12));
+        popup.setOutsideTouchable(true);
+
+        addMenuRow(menu, R.drawable.ic_arrow_back, "Back", () -> send("back", "", true), popup);
+        addMenuRow(menu, R.drawable.ic_arrow_forward, "Forward", () -> send("forward", "", true), popup);
+        addMenuRow(menu, R.drawable.ic_refresh, "Reload", () -> send("reload", "", true), popup);
+        addMenuRow(menu, R.drawable.ic_home, "Home", () -> send("home", "", true), popup);
+        addMenuRow(menu, R.drawable.ic_globe, "Open website", this::showUrlDialog, popup);
+
+        int[] anchorLocation = new int[2];
+        anchor.getLocationOnScreen(anchorLocation);
+        popup.showAtLocation(
+                getWindow().getDecorView(),
+                Gravity.TOP | Gravity.END,
+                dp(12),
+                anchorLocation[1] + anchor.getHeight() + dp(4)
+        );
+    }
+
+    private void addMenuRow(
+            LinearLayout menu,
+            int iconResource,
+            String label,
+            Runnable action,
+            PopupWindow popup
+    ) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(16), 0, dp(16), 0);
+        
+        int rippleColor = Color.argb(25, 255, 255, 255);
+        GradientDrawable content = new GradientDrawable();
+        content.setColor(Color.TRANSPARENT);
+        RippleDrawable rowBg = new RippleDrawable(
+            ColorStateList.valueOf(rippleColor),
+            null,
+            null
+        );
+        row.setBackground(rowBg);
+        
+        row.setOnClickListener(view -> {
+            popup.dismiss();
+            action.run();
         });
-        menu.show();
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconResource);
+        icon.setImageTintList(ColorStateList.valueOf(MUTED));
+        row.addView(icon, new LinearLayout.LayoutParams(dp(22), dp(22)));
+
+        TextView title = new TextView(this);
+        title.setText(label);
+        title.setTextSize(15);
+        title.setTextColor(Color.rgb(229, 231, 235)); // Gray 200
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        title.setPadding(dp(14), 0, 0, 0);
+        row.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
+        menu.addView(row, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(48)
+        ));
     }
 
     private void showUrlDialog() {
@@ -521,15 +582,16 @@ public class RemoteControllerActivity extends Activity {
 
     private void setModeSelected(ImageButton button, boolean selected) {
         button.setBackground(selected
-                ? roundedBackground(Color.rgb(40, 31, 78), ACCENT, 14)
-                : roundedBackground(Color.TRANSPARENT, Color.TRANSPARENT, 14));
-        button.setImageTintList(ColorStateList.valueOf(selected ? Color.rgb(196, 181, 253) : MUTED));
+                ? roundedBackground(SURFACE_RAISED, SURFACE_RAISED, 12)
+                : roundedBackground(Color.TRANSPARENT, Color.TRANSPARENT, 12));
+        button.setImageTintList(ColorStateList.valueOf(selected ? Color.WHITE : MUTED));
     }
 
-    private View mouseButton(String description, Runnable action) {
-        View button = new View(this);
+    private View mouseButton(String label, String description, Runnable action) {
+        TextView button = text(label, 13, Color.rgb(203, 213, 225));
+        button.setGravity(Gravity.CENTER);
         button.setContentDescription(description);
-        button.setBackground(roundedBackground(SURFACE_RAISED, BORDER, 14));
+        button.setBackground(roundedBackground(SURFACE_RAISED, SURFACE_RAISED, 12));
         button.setOnClickListener(view -> action.run());
         return button;
     }

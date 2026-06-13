@@ -70,6 +70,11 @@ import android.widget.TextView;
 import android.widget.Switch;
 import android.widget.Toast;
 import android.util.Log;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
+import android.animation.AnimatorListenerAdapter;
+import android.view.animation.LinearInterpolator;
+import android.view.animation.DecelerateInterpolator;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -102,6 +107,8 @@ public class MainActivity extends Activity {
     private ProgressBar progressBar;
     private FrameLayout pullIndicator;
     private ImageView pullIndicatorIcon;
+    private ObjectAnimator reloadAnimator;
+    private ObjectAnimator pullIndicatorAnimator;
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest webPermissionRequest;
     private GeolocationPermissions.Callback geolocationCallback;
@@ -565,27 +572,54 @@ public class MainActivity extends Activity {
     }
 
     private void startReloadAnimation() {
-        if (reloadButton == null || reloadButton.getAnimation() != null) {
+        if (reloadButton == null) {
             return;
         }
-        android.view.animation.RotateAnimation rotate = new android.view.animation.RotateAnimation(
-                0,
-                360,
-                android.view.animation.Animation.RELATIVE_TO_SELF,
-                0.5f,
-                android.view.animation.Animation.RELATIVE_TO_SELF,
-                0.5f
-        );
-        rotate.setDuration(850);
-        rotate.setRepeatCount(android.view.animation.Animation.INFINITE);
-        rotate.setInterpolator(new android.view.animation.LinearInterpolator());
-        reloadButton.startAnimation(rotate);
+        if (reloadAnimator != null && reloadAnimator.isRunning()) {
+            return;
+        }
+        reloadAnimator = ObjectAnimator.ofFloat(reloadButton, "rotation", 0f, 360f);
+        reloadAnimator.setDuration(1000);
+        reloadAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        reloadAnimator.setInterpolator(new LinearInterpolator());
+        reloadAnimator.start();
     }
 
     private void stopReloadAnimation() {
         if (reloadButton != null) {
-            reloadButton.clearAnimation();
-            reloadButton.setRotation(0f);
+            if (reloadAnimator != null && reloadAnimator.isRunning()) {
+                reloadAnimator.cancel();
+                reloadAnimator = null;
+                
+                float currentRotation = reloadButton.getRotation();
+                float normalizedRotation = currentRotation % 360f;
+                if (normalizedRotation < 0) {
+                    normalizedRotation += 360f;
+                }
+                ObjectAnimator stopAnimator = ObjectAnimator.ofFloat(
+                        reloadButton,
+                        "rotation",
+                        normalizedRotation,
+                        360f
+                );
+                stopAnimator.setDuration(450);
+                stopAnimator.setInterpolator(new DecelerateInterpolator());
+                stopAnimator.addListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(android.animation.Animator animation) {
+                        if (reloadButton != null) {
+                            reloadButton.setRotation(0f);
+                        }
+                    }
+                });
+                stopAnimator.start();
+            } else {
+                if (reloadAnimator != null) {
+                    reloadAnimator.cancel();
+                    reloadAnimator = null;
+                }
+                reloadButton.setRotation(0f);
+            }
         }
     }
 
@@ -1175,19 +1209,24 @@ public class MainActivity extends Activity {
                     isRefreshing = true;
                     pullIndicator.setVisibility(View.VISIBLE);
                     pullIndicator.setAlpha(1f);
+                    pullIndicator.setScaleX(1f);
+                    pullIndicator.setScaleY(1f);
                     pullIndicator.setTranslationY(dp(44));
 
-                    android.view.animation.RotateAnimation rotate = new android.view.animation.RotateAnimation(
-                        0, 360,
-                        android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f,
-                        android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f
-                    );
-                    rotate.setDuration(1200);
-                    rotate.setRepeatCount(android.view.animation.Animation.INFINITE);
-                    rotate.setInterpolator(new android.view.animation.LinearInterpolator());
-                    if (pullIndicatorIcon != null) {
-                        pullIndicatorIcon.startAnimation(rotate);
+                    if (pullIndicator.getBackground() instanceof GradientDrawable) {
+                        GradientDrawable gd = (GradientDrawable) pullIndicator.getBackground();
+                        gd.setStroke(dp(1), Color.rgb(124, 58, 237));
                     }
+
+                    if (pullIndicatorAnimator != null) {
+                        pullIndicatorAnimator.cancel();
+                    }
+                    pullIndicatorAnimator = ObjectAnimator.ofFloat(pullIndicatorIcon, "rotation", 0f, 360f);
+                    pullIndicatorAnimator.setDuration(1000);
+                    pullIndicatorAnimator.setRepeatCount(ValueAnimator.INFINITE);
+                    pullIndicatorAnimator.setInterpolator(new LinearInterpolator());
+                    pullIndicatorAnimator.start();
+
                     webView.reload();
                 } else {
                     hidePullIndicator();
@@ -1246,27 +1285,75 @@ public class MainActivity extends Activity {
     private void updatePullIndicator(float distance) {
         float threshold = dp(70);
         float progress = Math.min(1f, distance / threshold);
+        
+        boolean wasArmed = pullArmed;
         pullArmed = distance >= threshold;
+        if (pullArmed && !wasArmed) {
+            pullIndicator.performHapticFeedback(
+                android.view.HapticFeedbackConstants.KEYBOARD_TAP
+            );
+            pullIndicator.animate().scaleX(1.15f).scaleY(1.15f).setDuration(100)
+                    .withEndAction(() -> pullIndicator.animate().scaleX(1f).scaleY(1f).setDuration(100).start())
+                    .start();
+        }
+
         pullIndicator.setVisibility(View.VISIBLE);
         pullIndicator.setAlpha(progress);
-        pullIndicator.setTranslationY(Math.min(dp(44), distance * 0.3f));
+        
+        float scale = 0.6f + (progress * 0.4f);
+        pullIndicator.setScaleX(scale);
+        pullIndicator.setScaleY(scale);
+        
+        pullIndicator.setTranslationY(Math.min(dp(44), distance * 0.35f));
         if (pullIndicatorIcon != null) {
-            pullIndicatorIcon.setRotation(progress * 360f);
+            pullIndicatorIcon.setRotation(progress * 360f * 1.5f);
             pullIndicatorIcon.setImageTintList(ColorStateList.valueOf(
-                pullArmed ? Color.rgb(244, 63, 94) : Color.rgb(156, 163, 175)
+                pullArmed ? Color.rgb(124, 58, 237) : Color.rgb(156, 163, 175)
             ));
+        }
+        
+        if (pullIndicator.getBackground() instanceof GradientDrawable) {
+            GradientDrawable gd = (GradientDrawable) pullIndicator.getBackground();
+            gd.setStroke(dp(1), pullArmed ? Color.rgb(124, 58, 237) : Color.rgb(45, 48, 86));
         }
     }
 
     private void hidePullIndicator() {
-        if (pullIndicatorIcon != null) {
-            pullIndicatorIcon.clearAnimation();
+        if (pullIndicatorAnimator != null) {
+            pullIndicatorAnimator.cancel();
+            pullIndicatorAnimator = null;
         }
+        if (pullIndicatorIcon != null) {
+            float currentRotation = pullIndicatorIcon.getRotation();
+            float normalizedRotation = currentRotation % 360f;
+            if (normalizedRotation < 0) {
+                normalizedRotation += 360f;
+            }
+            ObjectAnimator stopAnimator = ObjectAnimator.ofFloat(
+                    pullIndicatorIcon,
+                    "rotation",
+                    normalizedRotation,
+                    360f
+            );
+            stopAnimator.setDuration(400);
+            stopAnimator.setInterpolator(new DecelerateInterpolator());
+            stopAnimator.start();
+        }
+        
         pullIndicator.animate()
                 .alpha(0f)
+                .scaleX(0.5f)
+                .scaleY(0.5f)
                 .translationY(0f)
-                .setDuration(160)
-                .withEndAction(() -> pullIndicator.setVisibility(View.GONE))
+                .setDuration(220)
+                .setInterpolator(new DecelerateInterpolator())
+                .withEndAction(() -> {
+                    pullIndicator.setVisibility(View.GONE);
+                    if (pullIndicator.getBackground() instanceof GradientDrawable) {
+                        GradientDrawable gd = (GradientDrawable) pullIndicator.getBackground();
+                        gd.setStroke(dp(1), Color.rgb(45, 48, 86));
+                    }
+                })
                 .start();
     }
 
@@ -1411,6 +1498,9 @@ public class MainActivity extends Activity {
             remoteClient.stop();
             remoteClient = null;
         }
+        if (remoteCursor != null) {
+            remoteCursor.setVisibility(View.GONE);
+        }
         if (webView != null) {
             webView.stopLoading();
             webView.setWebChromeClient(null);
@@ -1532,7 +1622,9 @@ public class MainActivity extends Activity {
                 ).show();
                 return;
             }
-            startReloadAnimation();
+            if (!isRefreshing) {
+                startReloadAnimation();
+            }
             updateAddressState(url);
             if (toolbarVisible) {
                 progressBar.setVisibility(View.VISIBLE);
@@ -1858,13 +1950,13 @@ public class MainActivity extends Activity {
 
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
-        container.setPadding(dp(24), dp(20), dp(24), dp(20));
+        container.setPadding(dp(22), dp(18), dp(22), dp(16));
 
         // Header
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(0, 0, 0, dp(16));
+        header.setPadding(0, 0, 0, dp(8));
 
         ImageView icon = new ImageView(this);
         icon.setImageResource(isHttps ? R.drawable.ic_lock : R.drawable.ic_globe);
@@ -1931,8 +2023,8 @@ public class MainActivity extends Activity {
         header.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
 
         TextView title = new TextView(this);
-        title.setText("Remote Browser Control");
-        title.setTextSize(17);
+        title.setText("Remote control");
+        title.setTextSize(18);
         title.setTextColor(Color.WHITE);
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         title.setPadding(dp(12), 0, 0, 0);
@@ -1941,18 +2033,17 @@ public class MainActivity extends Activity {
 
         // Description/Instructions
         TextView description = new TextView(this);
-        description.setText("Control this browser from another device or act as a remote controller.");
+        description.setText("Use another phone as a mouse and keyboard.");
         description.setTextSize(13);
         description.setTextColor(Color.rgb(142, 146, 178)); // gray 400
-        description.setPadding(0, 0, 0, dp(16));
+        description.setPadding(dp(36), 0, 0, dp(18));
         container.addView(description, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         // Switch container
         LinearLayout switchContainer = new LinearLayout(this);
         switchContainer.setOrientation(LinearLayout.HORIZONTAL);
         switchContainer.setGravity(Gravity.CENTER_VERTICAL);
-        switchContainer.setPadding(dp(16), dp(12), dp(16), dp(12));
-        switchContainer.setBackground(roundedBackground(Color.rgb(21, 23, 44), Color.rgb(45, 48, 86), 12));
+        switchContainer.setPadding(0, dp(4), 0, dp(4));
 
         LinearLayout switchTextLayout = new LinearLayout(this);
         switchTextLayout.setOrientation(LinearLayout.VERTICAL);
@@ -1960,18 +2051,12 @@ public class MainActivity extends Activity {
         switchTextLayout.setLayoutParams(switchTextParams);
 
         TextView switchTitle = new TextView(this);
-        switchTitle.setText("Remote Client Service");
+        switchTitle.setText("Allow remote control");
         switchTitle.setTextSize(14);
         switchTitle.setTextColor(Color.WHITE);
         switchTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
 
-        TextView switchDesc = new TextView(this);
-        switchDesc.setText("Allow other devices to control this webview.");
-        switchDesc.setTextSize(11);
-        switchDesc.setTextColor(Color.rgb(142, 146, 178));
-
         switchTextLayout.addView(switchTitle);
-        switchTextLayout.addView(switchDesc);
         switchContainer.addView(switchTextLayout);
 
         Switch remoteSwitch = new Switch(this);
@@ -1998,14 +2083,13 @@ public class MainActivity extends Activity {
 
         // Spacing
         View spacing = new View(this);
-        container.addView(spacing, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(16)));
+        container.addView(spacing, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(12)));
 
         // QR Code and URL Container
         final LinearLayout qrContainer = new LinearLayout(this);
         qrContainer.setOrientation(LinearLayout.VERTICAL);
         qrContainer.setGravity(Gravity.CENTER_HORIZONTAL);
-        qrContainer.setPadding(dp(16), dp(16), dp(16), dp(16));
-        qrContainer.setBackground(roundedBackground(Color.rgb(13, 14, 30), Color.rgb(45, 48, 86), 16));
+        qrContainer.setPadding(0, dp(8), 0, dp(4));
         qrContainer.setVisibility(remoteSwitch.isChecked() ? View.VISIBLE : View.GONE);
 
         final ProgressBar qrProgress = new ProgressBar(this);
@@ -2015,50 +2099,33 @@ public class MainActivity extends Activity {
 
         final ImageView qrImage = new ImageView(this);
         qrImage.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        LinearLayout.LayoutParams qrParams = new LinearLayout.LayoutParams(dp(180), dp(180));
-        qrParams.bottomMargin = dp(12);
+        LinearLayout.LayoutParams qrParams = new LinearLayout.LayoutParams(dp(210), dp(210));
+        qrParams.bottomMargin = dp(8);
         qrImage.setLayoutParams(qrParams);
         qrImage.setVisibility(View.GONE);
         qrContainer.addView(qrImage);
 
-        TextView urlTitle = new TextView(this);
-        urlTitle.setText("CONTROLLER URL (CLICK TO COPY)");
-        urlTitle.setTextSize(10);
-        urlTitle.setTextColor(Color.rgb(95, 100, 138));
-        urlTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        urlTitle.setPadding(0, 0, 0, dp(4));
-        qrContainer.addView(urlTitle);
-
-        TextView urlValue = new TextView(this);
         final String controllerUrl =
                 "https://raw.githack.com/ghuyphan/kiosk-browser/main/remote.html"
                         + "#topic=" + Uri.encode(remoteControlTopic)
                         + "&secret=" + Uri.encode(remoteControlSecret);
-        urlValue.setText(controllerUrl);
-        urlValue.setTextSize(12);
-        urlValue.setTextColor(Color.rgb(124, 58, 237)); // Violet
-        urlValue.setGravity(Gravity.CENTER);
-        urlValue.setFocusable(true);
-        urlValue.setClickable(true);
-        urlValue.setOnClickListener(v -> {
-            android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            android.content.ClipData clip = android.content.ClipData.newPlainText("Controller URL", controllerUrl);
-            if (clipboard != null) {
-                clipboard.setPrimaryClip(clip);
-                Toast.makeText(MainActivity.this, "Copied URL to clipboard", Toast.LENGTH_SHORT).show();
-            }
-        });
-        qrContainer.addView(urlValue);
+
+        TextView qrHint = new TextView(this);
+        qrHint.setText("Scan with the other device");
+        qrHint.setTextSize(13);
+        qrHint.setTextColor(Color.rgb(142, 146, 178));
+        qrHint.setGravity(Gravity.CENTER);
+        qrContainer.addView(qrHint);
 
         container.addView(qrContainer, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         // Spacing before action button
         View actionSpacing = new View(this);
-        container.addView(actionSpacing, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(16)));
+        container.addView(actionSpacing, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(12)));
 
         // Scan button (to let this device control another device)
         TextView scanBtn = new TextView(this);
-        scanBtn.setText("Scan QR Code to Control Another Device");
+        scanBtn.setText("Scan another device");
         scanBtn.setGravity(Gravity.CENTER);
         scanBtn.setTextColor(Color.WHITE);
         scanBtn.setTextSize(14);
@@ -2099,7 +2166,7 @@ public class MainActivity extends Activity {
         ));
 
         TextView resetBtn = new TextView(this);
-        resetBtn.setText("Disconnect Controller & Reset Link");
+        resetBtn.setText("Reset pairing");
         resetBtn.setGravity(Gravity.CENTER);
         resetBtn.setTextColor(Color.rgb(251, 113, 133));
         resetBtn.setTextSize(13);
@@ -2107,11 +2174,7 @@ public class MainActivity extends Activity {
         resetBtn.setPadding(0, dp(12), 0, dp(12));
         resetBtn.setClickable(true);
         resetBtn.setFocusable(true);
-        resetBtn.setBackground(roundedBackground(
-                Color.rgb(21, 23, 44),
-                Color.rgb(80, 35, 54),
-                12
-        ));
+        resetBtn.setBackgroundColor(Color.TRANSPARENT);
         resetBtn.setOnClickListener(v -> {
             boolean keepEnabled = remoteSwitch.isChecked();
             rotateRemoteControlCredentials(keepEnabled);
@@ -2134,15 +2197,15 @@ public class MainActivity extends Activity {
 
         // Dismiss button
         TextView closeBtn = new TextView(this);
-        closeBtn.setText("Dismiss");
+        closeBtn.setText("Done");
         closeBtn.setGravity(Gravity.CENTER);
-        closeBtn.setTextColor(Color.rgb(142, 146, 178)); // gray 400
+        closeBtn.setTextColor(Color.WHITE);
         closeBtn.setTextSize(14);
         closeBtn.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         closeBtn.setPadding(0, dp(14), 0, dp(14));
         closeBtn.setClickable(true);
         closeBtn.setFocusable(true);
-        closeBtn.setBackground(roundedBackground(Color.rgb(21, 23, 44), Color.rgb(45, 48, 86), 12));
+        closeBtn.setBackground(roundedBackground(Color.rgb(37, 40, 68), Color.rgb(37, 40, 68), 12));
         closeBtn.setOnClickListener(v -> dialog.dismiss());
         container.addView(closeBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -2165,6 +2228,9 @@ public class MainActivity extends Activity {
                 qrContainer.setVisibility(View.GONE);
                 if (remoteClient != null) {
                     remoteClient.stop();
+                }
+                if (remoteCursor != null) {
+                    remoteCursor.setVisibility(View.GONE);
                 }
             }
         });
@@ -2189,6 +2255,9 @@ public class MainActivity extends Activity {
         if (remoteClient != null) {
             remoteClient.stop();
             remoteClient = null;
+        }
+        if (remoteCursor != null) {
+            remoteCursor.setVisibility(View.GONE);
         }
         remoteControlTopic = "qms-kiosk-" + randomToken(24);
         remoteControlSecret = randomToken(32);
@@ -2338,6 +2407,13 @@ public class MainActivity extends Activity {
                     Toast.makeText(this, "Remote controller connected", Toast.LENGTH_SHORT).show();
                     sendRemotePageStatus();
                     message = "Connected";
+                    break;
+                case "disconnect":
+                    if (remoteCursor != null) {
+                        remoteCursor.setVisibility(View.GONE);
+                    }
+                    Toast.makeText(this, "Remote controller disconnected", Toast.LENGTH_SHORT).show();
+                    message = "Disconnected";
                     break;
                 case "back":
                     if (webView.canGoBack()) {
