@@ -88,7 +88,7 @@ public class MainActivity extends Activity {
 
     private FrameLayout root;
     private FrameLayout webViewContainer;
-    private TextView remoteCursor;
+    private ImageView remoteCursor;
     private LinearLayout toolbar;
     private LinearLayout addressContainer;
     private ImageButton backButton;
@@ -346,16 +346,15 @@ public class MainActivity extends Activity {
         indicatorParams.topMargin = dp(10);
         webViewContainer.addView(pullIndicator, indicatorParams);
 
-        remoteCursor = new TextView(this);
-        remoteCursor.setText("●");
-        remoteCursor.setTextSize(26);
-        remoteCursor.setTextColor(Color.rgb(124, 58, 237));
-        remoteCursor.setGravity(Gravity.CENTER);
+        remoteCursor = new ImageView(this);
+        remoteCursor.setImageResource(R.drawable.ic_cursor_arrow);
+        remoteCursor.setPivotX(dp(4));
+        remoteCursor.setPivotY(dp(4));
         remoteCursor.setVisibility(View.GONE);
         remoteCursor.setElevation(dp(20));
         webViewContainer.addView(
                 remoteCursor,
-                new FrameLayout.LayoutParams(dp(40), dp(40))
+                new FrameLayout.LayoutParams(dp(32), dp(32))
         );
 
         content.addView(webViewContainer, new LinearLayout.LayoutParams(
@@ -2451,8 +2450,8 @@ public class MainActivity extends Activity {
         if (remoteCursor == null) {
             return;
         }
-        remoteCursor.setX(remotePointerX - dp(20));
-        remoteCursor.setY(remotePointerY - dp(20));
+        remoteCursor.setX(remotePointerX - dp(4));
+        remoteCursor.setY(remotePointerY - dp(4));
     }
 
     private void dispatchRemoteTap(long holdDurationMs) {

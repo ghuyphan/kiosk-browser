@@ -861,45 +861,221 @@ public class SettingsActivity extends Activity {
     }
 
     private void showPolicyDialog() {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        }
+
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(dp(24), dp(24), dp(24), dp(24));
+        container.setBackground(roundedBackground(Color.rgb(21, 23, 44), Color.rgb(45, 48, 86), 20));
+
+        // Dialog Header
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(0, 0, 0, dp(16));
+
+        int colorViolet = Color.rgb(124, 58, 237);
+        View iconContainer = styledIcon(R.drawable.ic_trash, colorViolet);
+        header.addView(iconContainer);
+
+        TextView title = new TextView(this);
+        title.setText("Session clearing policy");
+        title.setTextSize(17);
+        title.setTextColor(Color.WHITE);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        title.setPadding(dp(12), 0, 0, 0);
+        header.addView(title);
+
+        container.addView(header);
+
+        // Subtitle
+        TextView subtitle = new TextView(this);
+        subtitle.setText("Select when the browser should automatically clear all session data, cookies, and local storage.");
+        subtitle.setTextColor(Color.rgb(142, 146, 178));
+        subtitle.setTextSize(13);
+        subtitle.setPadding(0, 0, 0, dp(16));
+        container.addView(subtitle);
+
+        // Options
         String[] options = {"Never", "On app start", "After inactivity", "Daily"};
         final String[] keys = {"never", "app_start", "inactivity", "daily"};
-        int checkedItem = 0;
-        for (int i = 0; i < keys.length; i++) {
-            if (keys[i].equals(selectedPolicy)) {
-                checkedItem = i;
-                break;
+
+        for (int i = 0; i < options.length; i++) {
+            final String key = keys[i];
+            final String label = options[i];
+            final boolean isSelected = key.equals(selectedPolicy);
+
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(16), dp(14), dp(16), dp(14));
+            row.setClickable(true);
+            row.setFocusable(true);
+
+            if (isSelected) {
+                row.setBackground(roundedBackground(Color.rgb(33, 31, 62), Color.rgb(124, 58, 237), 12));
+            } else {
+                row.setBackground(roundedBackground(Color.rgb(16, 17, 36), Color.rgb(39, 42, 78), 12));
+            }
+
+            TextView labelView = new TextView(this);
+            labelView.setText(label);
+            labelView.setTextSize(15);
+            labelView.setTextColor(isSelected ? Color.WHITE : Color.rgb(197, 200, 222));
+            labelView.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            row.addView(labelView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+            if (isSelected) {
+                ImageView checkIcon = new ImageView(this);
+                checkIcon.setImageResource(R.drawable.ic_check);
+                checkIcon.setImageTintList(ColorStateList.valueOf(colorViolet));
+                row.addView(checkIcon, new LinearLayout.LayoutParams(dp(20), dp(20)));
+            }
+
+            row.setOnClickListener(v -> {
+                selectedPolicy = key;
+                updatePolicyViews();
+                dialog.dismiss();
+            });
+
+            container.addView(row);
+
+            if (i < options.length - 1) {
+                View spacer = new View(this);
+                container.addView(spacer, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8)));
             }
         }
-        
-        new AlertDialog.Builder(this)
-                .setTitle("Select Clearing Policy")
-                .setSingleChoiceItems(options, checkedItem, (dialog, which) -> {
-                    selectedPolicy = keys[which];
-                    updatePolicyViews();
-                    dialog.dismiss();
-                })
-                .show();
+
+        View spacer = new View(this);
+        container.addView(spacer, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(20)));
+
+        Button btnCancel = actionButton("Cancel", false);
+        btnCancel.setOnClickListener(v -> dialog.dismiss());
+        container.addView(btnCancel, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+
+        dialog.setContentView(container);
+
+        android.view.WindowManager.LayoutParams lp = new android.view.WindowManager.LayoutParams();
+        if (dialog.getWindow() != null) {
+            lp.copyFrom(dialog.getWindow().getAttributes());
+            lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.90);
+            lp.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;
+            dialog.show();
+            dialog.getWindow().setAttributes(lp);
+        }
     }
 
     private void showInactivityDialog() {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        }
+
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(dp(24), dp(24), dp(24), dp(24));
+        container.setBackground(roundedBackground(Color.rgb(21, 23, 44), Color.rgb(45, 48, 86), 20));
+
+        // Dialog Header
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(0, 0, 0, dp(16));
+
+        int colorViolet = Color.rgb(124, 58, 237);
+        View iconContainer = styledIcon(R.drawable.ic_sun, colorViolet);
+        header.addView(iconContainer);
+
+        TextView title = new TextView(this);
+        title.setText("Inactivity threshold");
+        title.setTextSize(17);
+        title.setTextColor(Color.WHITE);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        title.setPadding(dp(12), 0, 0, 0);
+        header.addView(title);
+
+        container.addView(header);
+
+        // Subtitle
+        TextView subtitle = new TextView(this);
+        subtitle.setText("Select how long the browser should wait without user interaction before clearing the session.");
+        subtitle.setTextColor(Color.rgb(142, 146, 178));
+        subtitle.setTextSize(13);
+        subtitle.setPadding(0, 0, 0, dp(16));
+        container.addView(subtitle);
+
+        // Options
         String[] options = {"15 minutes", "30 minutes", "1 hour", "2 hours"};
         final int[] values = {15, 30, 60, 120};
-        int checkedItem = 0;
-        for (int i = 0; i < values.length; i++) {
-            if (values[i] == selectedInactivityMins) {
-                checkedItem = i;
-                break;
+
+        for (int i = 0; i < options.length; i++) {
+            final int val = values[i];
+            final String label = options[i];
+            final boolean isSelected = (val == selectedInactivityMins);
+
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(16), dp(14), dp(16), dp(14));
+            row.setClickable(true);
+            row.setFocusable(true);
+
+            if (isSelected) {
+                row.setBackground(roundedBackground(Color.rgb(33, 31, 62), Color.rgb(124, 58, 237), 12));
+            } else {
+                row.setBackground(roundedBackground(Color.rgb(16, 17, 36), Color.rgb(39, 42, 78), 12));
+            }
+
+            TextView labelView = new TextView(this);
+            labelView.setText(label);
+            labelView.setTextSize(15);
+            labelView.setTextColor(isSelected ? Color.WHITE : Color.rgb(197, 200, 222));
+            labelView.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            row.addView(labelView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+            if (isSelected) {
+                ImageView checkIcon = new ImageView(this);
+                checkIcon.setImageResource(R.drawable.ic_check);
+                checkIcon.setImageTintList(ColorStateList.valueOf(colorViolet));
+                row.addView(checkIcon, new LinearLayout.LayoutParams(dp(20), dp(20)));
+            }
+
+            row.setOnClickListener(v -> {
+                selectedInactivityMins = val;
+                updatePolicyViews();
+                dialog.dismiss();
+            });
+
+            container.addView(row);
+
+            if (i < options.length - 1) {
+                View spacer = new View(this);
+                container.addView(spacer, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8)));
             }
         }
-        
-        new AlertDialog.Builder(this)
-                .setTitle("Select Inactivity Duration")
-                .setSingleChoiceItems(options, checkedItem, (dialog, which) -> {
-                    selectedInactivityMins = values[which];
-                    updatePolicyViews();
-                    dialog.dismiss();
-                })
-                .show();
+
+        View spacer = new View(this);
+        container.addView(spacer, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(20)));
+
+        Button btnCancel = actionButton("Cancel", false);
+        btnCancel.setOnClickListener(v -> dialog.dismiss());
+        container.addView(btnCancel, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+
+        dialog.setContentView(container);
+
+        android.view.WindowManager.LayoutParams lp = new android.view.WindowManager.LayoutParams();
+        if (dialog.getWindow() != null) {
+            lp.copyFrom(dialog.getWindow().getAttributes());
+            lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.90);
+            lp.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;
+            dialog.show();
+            dialog.getWindow().setAttributes(lp);
+        }
     }
 
     private void updatePolicyViews() {
