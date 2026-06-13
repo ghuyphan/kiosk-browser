@@ -311,7 +311,7 @@ public class RemoteControllerActivity extends Activity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(16), 0, dp(16), 0);
-        
+
         int rippleColor = Color.argb(25, 255, 255, 255);
         GradientDrawable content = new GradientDrawable();
         content.setColor(Color.TRANSPARENT);
@@ -321,7 +321,7 @@ public class RemoteControllerActivity extends Activity {
             null
         );
         row.setBackground(rowBg);
-        
+
         row.setOnClickListener(view -> {
             popup.dismiss();
             action.run();
