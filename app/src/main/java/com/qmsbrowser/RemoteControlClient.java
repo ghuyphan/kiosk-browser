@@ -2,18 +2,22 @@ package com.qmsbrowser;
 
 import android.util.Log;
 import java.io.BufferedReader;
+import java.io.OutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.UUID;
 
 import org.json.JSONObject;
 
 public class RemoteControlClient {
     private static final String TAG = "RemoteControlClient";
     private final String topic;
+    private final String statusTopic;
     private final String secret;
     private final Callback callback;
     private final Set<String> recentCommandIds = new LinkedHashSet<>();
@@ -22,11 +26,12 @@ public class RemoteControlClient {
     private volatile HttpURLConnection activeConnection;
 
     public interface Callback {
-        void onCommand(String action, String value);
+        void onCommand(String commandId, String action, String value);
     }
 
     public RemoteControlClient(String topic, String secret, Callback callback) {
         this.topic = topic;
+        this.statusTopic = topic + "-status";
         this.secret = secret;
         this.callback = callback;
     }
@@ -122,6 +127,7 @@ public class RemoteControlClient {
             if (!RemoteCommandAuth.isFresh(timestamp, System.currentTimeMillis())
                     || commandId.isEmpty()
                     || action == null
+                    || !RemoteCommandPolicy.isAllowed(action, value)
                     || !RemoteCommandAuth.verify(
                             secret,
                             commandId,
@@ -136,10 +142,66 @@ public class RemoteControlClient {
             }
             rememberCommand(commandId);
             if (!action.isEmpty()) {
-                callback.onCommand(action, value);
+                callback.onCommand(commandId, action, value);
             }
         } catch (Exception e) {
             Log.w(TAG, "Ignoring malformed remote-control event", e);
+        }
+    }
+
+    public void sendEvent(String action, String value) {
+        if (!running || action == null || value == null
+                || value.length() > RemoteCommandPolicy.MAX_VALUE_LENGTH) {
+            return;
+        }
+        new Thread(() -> publishEvent(action, value), "RemoteControlPublishThread").start();
+    }
+
+    private void publishEvent(String action, String value) {
+        HttpURLConnection connection = null;
+        try {
+            String id = UUID.randomUUID().toString();
+            long timestamp = System.currentTimeMillis();
+            String signature = RemoteCommandAuth.sign(
+                    secret,
+                    id,
+                    timestamp,
+                    action,
+                    value
+            );
+            JSONObject payload = new JSONObject();
+            payload.put("version", 2);
+            payload.put("id", id);
+            payload.put("timestamp", timestamp);
+            payload.put("action", action);
+            payload.put("value", value);
+            payload.put("signature", signature);
+
+            connection = (HttpURLConnection) new URL(
+                    "https://ntfy.sh/" + statusTopic
+            ).openConnection();
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(10000);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "text/plain; charset=utf-8");
+            byte[] bytes = payload.toString().getBytes(StandardCharsets.UTF_8);
+            connection.setFixedLengthStreamingMode(bytes.length);
+            try (OutputStream output = connection.getOutputStream()) {
+                output.write(bytes);
+            }
+            int responseCode = connection.getResponseCode();
+            if (responseCode < 200 || responseCode >= 300) {
+                Log.w(TAG, "Status publish returned response code: " + responseCode);
+            }
+        } catch (Exception error) {
+            if (running) {
+                Log.w(TAG, "Failed to publish remote-control status", error);
+            }
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
         }
     }
 

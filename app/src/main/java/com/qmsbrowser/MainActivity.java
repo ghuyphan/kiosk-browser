@@ -29,6 +29,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.transition.ChangeBounds;
@@ -36,6 +37,7 @@ import android.transition.Fade;
 import android.transition.TransitionManager;
 import android.transition.TransitionSet;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -85,6 +87,8 @@ public class MainActivity extends Activity {
     private static final long AUTO_HIDE_DELAY_MS = 2200;
 
     private FrameLayout root;
+    private FrameLayout webViewContainer;
+    private TextView remoteCursor;
     private LinearLayout toolbar;
     private LinearLayout addressContainer;
     private ImageButton backButton;
@@ -126,6 +130,9 @@ public class MainActivity extends Activity {
     private RemoteControlClient remoteClient;
     private String remoteControlTopic;
     private String remoteControlSecret;
+    private AlertDialog remoteControlDialog;
+    private float remotePointerX;
+    private float remotePointerY;
     private String pendingWebPermissionOrigin;
     private String[] pendingWebPermissionResources;
 
@@ -148,12 +155,7 @@ public class MainActivity extends Activity {
         }
         boolean remoteEnabled = prefs.getBoolean("remote_control_enabled", false);
         if (remoteEnabled) {
-            remoteClient = new RemoteControlClient(
-                    remoteControlTopic,
-                    remoteControlSecret,
-                    (action, value) ->
-                            runOnUiThread(() -> handleRemoteCommand(action, value))
-            );
+            remoteClient = createRemoteClient();
             remoteClient.start();
         }
         
@@ -243,7 +245,7 @@ public class MainActivity extends Activity {
                 dp(1)
         ));
 
-        FrameLayout webViewContainer = new FrameLayout(this);
+        webViewContainer = new FrameLayout(this);
         webView = new BrowserWebView(this);
         configureWebView();
         webViewContainer.addView(webView, new FrameLayout.LayoutParams(
@@ -281,6 +283,18 @@ public class MainActivity extends Activity {
         indicatorParams.topMargin = dp(10);
         webViewContainer.addView(pullIndicator, indicatorParams);
 
+        remoteCursor = new TextView(this);
+        remoteCursor.setText("●");
+        remoteCursor.setTextSize(26);
+        remoteCursor.setTextColor(Color.rgb(124, 58, 237));
+        remoteCursor.setGravity(Gravity.CENTER);
+        remoteCursor.setVisibility(View.GONE);
+        remoteCursor.setElevation(dp(20));
+        webViewContainer.addView(
+                remoteCursor,
+                new FrameLayout.LayoutParams(dp(40), dp(40))
+        );
+
         content.addView(webViewContainer, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 0,
@@ -288,6 +302,11 @@ public class MainActivity extends Activity {
         ));
 
         setContentView(root);
+        webViewContainer.post(() -> {
+            remotePointerX = webViewContainer.getWidth() / 2f;
+            remotePointerY = webViewContainer.getHeight() / 2f;
+            positionRemoteCursor();
+        });
     }
 
     private LinearLayout buildToolbar() {
@@ -1540,6 +1559,7 @@ public class MainActivity extends Activity {
             if (toolbarVisible) {
                 progressBar.setVisibility(View.VISIBLE);
             }
+            sendRemotePageStatus();
         }
 
         @Override
@@ -1556,6 +1576,7 @@ public class MainActivity extends Activity {
                 hidePullIndicator();
                 isRefreshing = false;
             }
+            sendRemotePageStatus();
         }
 
         @Override
@@ -1604,6 +1625,7 @@ public class MainActivity extends Activity {
         @Override
         public void onReceivedTitle(WebView view, String title) {
             setTitle(title == null || title.isEmpty() ? "Kiosk Browser" : title);
+            sendRemotePageStatus();
         }
 
         @Override
@@ -1831,6 +1853,12 @@ public class MainActivity extends Activity {
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setView(container)
                 .create();
+        remoteControlDialog = dialog;
+        dialog.setOnDismissListener(ignored -> {
+            if (remoteControlDialog == dialog) {
+                remoteControlDialog = null;
+            }
+        });
         
         if (dialog.getWindow() != null) {
             GradientDrawable bg = new GradientDrawable();
@@ -2014,6 +2042,42 @@ public class MainActivity extends Activity {
         });
         container.addView(scanBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        View resetSpacing = new View(this);
+        container.addView(resetSpacing, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(10)
+        ));
+
+        TextView resetBtn = new TextView(this);
+        resetBtn.setText("Disconnect Controller & Reset Link");
+        resetBtn.setGravity(Gravity.CENTER);
+        resetBtn.setTextColor(Color.rgb(251, 113, 133));
+        resetBtn.setTextSize(13);
+        resetBtn.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        resetBtn.setPadding(0, dp(12), 0, dp(12));
+        resetBtn.setClickable(true);
+        resetBtn.setFocusable(true);
+        resetBtn.setBackground(roundedBackground(
+                Color.rgb(21, 23, 44),
+                Color.rgb(80, 35, 54),
+                12
+        ));
+        resetBtn.setOnClickListener(v -> {
+            boolean keepEnabled = remoteSwitch.isChecked();
+            rotateRemoteControlCredentials(keepEnabled);
+            dialog.dismiss();
+            Toast.makeText(
+                    MainActivity.this,
+                    "Controller disconnected and link reset",
+                    Toast.LENGTH_SHORT
+            ).show();
+            showRemoteControlDialog();
+        });
+        container.addView(resetBtn, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
         // Spacing before dismiss button
         View closeSpacing = new View(this);
         container.addView(closeSpacing, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(12)));
@@ -2043,12 +2107,7 @@ public class MainActivity extends Activity {
                 qrImage.setVisibility(View.GONE);
 
                 if (remoteClient == null) {
-                    remoteClient = new RemoteControlClient(
-                            remoteControlTopic,
-                            remoteControlSecret,
-                            (action, value) ->
-                                    runOnUiThread(() -> handleRemoteCommand(action, value))
-                    );
+                    remoteClient = createRemoteClient();
                 }
                 remoteClient.start();
                 loadQrCode(controllerUrl, qrImage, qrProgress);
@@ -2074,6 +2133,24 @@ public class MainActivity extends Activity {
             dialog.getWindow().setBackgroundDrawable(bg);
         }
         dialog.show();
+    }
+
+    private void rotateRemoteControlCredentials(boolean restart) {
+        if (remoteClient != null) {
+            remoteClient.stop();
+            remoteClient = null;
+        }
+        remoteControlTopic = "qms-kiosk-" + randomToken(24);
+        remoteControlSecret = randomToken(32);
+        BrowserPreferences.get(this).edit()
+                .putString("remote_control_topic", remoteControlTopic)
+                .putString("remote_control_secret", remoteControlSecret)
+                .putBoolean("remote_control_enabled", restart)
+                .apply();
+        if (restart) {
+            remoteClient = createRemoteClient();
+            remoteClient.start();
+        }
     }
 
     private void startQrScanner() {
@@ -2164,54 +2241,284 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private void handleRemoteCommand(String action, String value) {
-        if (webView == null || action == null) return;
+    private RemoteControlClient createRemoteClient() {
+        return new RemoteControlClient(
+                remoteControlTopic,
+                remoteControlSecret,
+                (commandId, action, value) -> runOnUiThread(
+                        () -> handleRemoteCommand(commandId, action, value)
+                )
+        );
+    }
+
+    private void handleRemoteCommand(String commandId, String action, String value) {
+        if (webView == null || action == null) {
+            sendRemoteAck(commandId, false, "Browser is unavailable");
+            return;
+        }
         Log.d("MainActivity", "Handling authenticated remote command: " + action);
-        switch (action) {
-            case "back":
-                if (webView.canGoBack()) {
-                    webView.goBack();
-                }
+        boolean success = true;
+        String message = "OK";
+        try {
+            switch (action) {
+                case "hello":
+                    if (remoteControlDialog != null && remoteControlDialog.isShowing()) {
+                        remoteControlDialog.dismiss();
+                    }
+                    Toast.makeText(this, "Remote controller connected", Toast.LENGTH_SHORT).show();
+                    sendRemotePageStatus();
+                    message = "Connected";
+                    break;
+                case "back":
+                    if (webView.canGoBack()) {
+                        webView.goBack();
+                    } else {
+                        success = false;
+                        message = "No back history";
+                    }
+                    break;
+                case "forward":
+                    if (webView.canGoForward()) {
+                        webView.goForward();
+                    } else {
+                        success = false;
+                        message = "No forward history";
+                    }
+                    break;
+                case "reload":
+                    webView.reload();
+                    break;
+                case "home":
+                    success = navigateTo(BrowserPreferences.get(this).getString(
+                            BrowserPreferences.START_URL,
+                            BrowserPreferences.DEFAULT_START_URL
+                    ), false);
+                    message = success ? "Opening home" : "Home URL was blocked";
+                    break;
+                case "url":
+                    success = value != null && !value.isEmpty() && navigateTo(value, false);
+                    message = success ? "Opening URL" : "URL was blocked";
+                    break;
+                case "pointer_move":
+                    moveRemotePointer(new JSONObject(value));
+                    break;
+                case "tap_at":
+                    moveRemotePointerTo(new JSONObject(value));
+                    dispatchRemoteTap(60);
+                    break;
+                case "tap":
+                    dispatchRemoteTap(60);
+                    break;
+                case "double_tap":
+                    dispatchRemoteTap(60);
+                    uiHandler.postDelayed(() -> dispatchRemoteTap(60), 110);
+                    break;
+                case "long_press":
+                    dispatchRemoteTap(650);
+                    break;
+                case "scroll":
+                    JSONObject scroll = new JSONObject(value);
+                    webView.scrollBy(scroll.optInt("dx", 0), scroll.optInt("dy", 0));
+                    break;
+                case "type":
+                    insertRemoteText(value == null ? "" : value);
+                    break;
+                case "key":
+                    success = dispatchRemoteKey(value);
+                    message = success ? "Key sent" : "Unsupported key";
+                    break;
+                case "page_status":
+                    sendRemotePageStatus();
+                    message = "Status sent";
+                    break;
+                default:
+                    success = false;
+                    message = "Unsupported command";
+                    break;
+            }
+        } catch (Exception error) {
+            success = false;
+            message = "Invalid command payload";
+            Log.w("MainActivity", "Remote command failed", error);
+        }
+        boolean transientCommand = "pointer_move".equals(action) || "scroll".equals(action);
+        if (!transientCommand) {
+            sendRemoteAck(commandId, success, message);
+            sendRemotePageStatus();
+        }
+    }
+
+    private void moveRemotePointer(JSONObject movement) {
+        if (webViewContainer == null || remoteCursor == null) {
+            return;
+        }
+        float sensitivity = (float) movement.optDouble("sensitivity", 1.0);
+        sensitivity = Math.max(0.25f, Math.min(3f, sensitivity));
+        remotePointerX += movement.optDouble("dx", 0) * sensitivity;
+        remotePointerY += movement.optDouble("dy", 0) * sensitivity;
+        remotePointerX = Math.max(0, Math.min(webView.getWidth() - 1, remotePointerX));
+        remotePointerY = Math.max(0, Math.min(webView.getHeight() - 1, remotePointerY));
+        positionRemoteCursor();
+        remoteCursor.setVisibility(View.VISIBLE);
+        remoteCursor.setAlpha(1f);
+    }
+
+    private void moveRemotePointerTo(JSONObject position) {
+        if (webView == null || remoteCursor == null) {
+            return;
+        }
+        double normalizedX = Math.max(0, Math.min(1, position.optDouble("x", 0.5)));
+        double normalizedY = Math.max(0, Math.min(1, position.optDouble("y", 0.5)));
+        remotePointerX = (float) (normalizedX * Math.max(0, webView.getWidth() - 1));
+        remotePointerY = (float) (normalizedY * Math.max(0, webView.getHeight() - 1));
+        positionRemoteCursor();
+        remoteCursor.setVisibility(View.VISIBLE);
+        remoteCursor.setAlpha(1f);
+    }
+
+    private void positionRemoteCursor() {
+        if (remoteCursor == null) {
+            return;
+        }
+        remoteCursor.setX(remotePointerX - dp(20));
+        remoteCursor.setY(remotePointerY - dp(20));
+    }
+
+    private void dispatchRemoteTap(long holdDurationMs) {
+        if (webView == null) {
+            return;
+        }
+        long downTime = SystemClock.uptimeMillis();
+        MotionEvent down = MotionEvent.obtain(
+                downTime,
+                downTime,
+                MotionEvent.ACTION_DOWN,
+                remotePointerX,
+                remotePointerY,
+                0
+        );
+        webView.dispatchTouchEvent(down);
+        down.recycle();
+        uiHandler.postDelayed(() -> {
+            if (webView == null) {
+                return;
+            }
+            long eventTime = SystemClock.uptimeMillis();
+            MotionEvent up = MotionEvent.obtain(
+                    downTime,
+                    eventTime,
+                    MotionEvent.ACTION_UP,
+                    remotePointerX,
+                    remotePointerY,
+                    0
+            );
+            webView.dispatchTouchEvent(up);
+            up.recycle();
+            if (remoteCursor != null) {
+                remoteCursor.animate()
+                        .scaleX(1.45f)
+                        .scaleY(1.45f)
+                        .setDuration(90)
+                        .withEndAction(() -> remoteCursor.animate()
+                                .scaleX(1f)
+                                .scaleY(1f)
+                                .setDuration(120)
+                                .start())
+                        .start();
+            }
+        }, holdDurationMs);
+    }
+
+    private boolean dispatchRemoteKey(String key) {
+        int keyCode;
+        switch (key == null ? "" : key.toLowerCase(java.util.Locale.US)) {
+            case "backspace":
+                keyCode = KeyEvent.KEYCODE_DEL;
                 break;
-            case "forward":
-                if (webView.canGoForward()) {
-                    webView.goForward();
-                }
+            case "delete":
+                keyCode = KeyEvent.KEYCODE_FORWARD_DEL;
                 break;
-            case "reload":
-                webView.reload();
+            case "enter":
+                keyCode = KeyEvent.KEYCODE_ENTER;
                 break;
-            case "home":
-                navigateTo(BrowserPreferences.get(this).getString(
-                        BrowserPreferences.START_URL,
-                        BrowserPreferences.DEFAULT_START_URL
-                ), false);
+            case "tab":
+                keyCode = KeyEvent.KEYCODE_TAB;
                 break;
-            case "url":
-                if (value != null && !value.isEmpty()) {
-                    navigateTo(value, false);
-                }
+            case "escape":
+                keyCode = KeyEvent.KEYCODE_ESCAPE;
                 break;
-            case "type":
-                if (value != null) {
-                    String escapedValue = JSONObject.quote(value);
-                    String js = "var el = document.activeElement; " +
-                            "if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.contentEditable === 'true')) { " +
-                            "    if (el.contentEditable === 'true') { " +
-                            "        el.innerText = " + escapedValue + "; " +
-                            "    } else { " +
-                            "        el.value = " + escapedValue + "; " +
-                            "    } " +
-                            "    var evt = document.createEvent('HTMLEvents'); " +
-                            "    evt.initEvent('input', true, true); " +
-                            "    el.dispatchEvent(evt); " +
-                            "    var evt2 = document.createEvent('HTMLEvents'); " +
-                            "    evt2.initEvent('change', true, true); " +
-                            "    el.dispatchEvent(evt2); " +
-                            "}";
-                    webView.evaluateJavascript(js, null);
-                }
+            case "arrowup":
+                keyCode = KeyEvent.KEYCODE_DPAD_UP;
                 break;
+            case "arrowdown":
+                keyCode = KeyEvent.KEYCODE_DPAD_DOWN;
+                break;
+            case "arrowleft":
+                keyCode = KeyEvent.KEYCODE_DPAD_LEFT;
+                break;
+            case "arrowright":
+                keyCode = KeyEvent.KEYCODE_DPAD_RIGHT;
+                break;
+            default:
+                return false;
+        }
+        long time = SystemClock.uptimeMillis();
+        webView.dispatchKeyEvent(new KeyEvent(time, time, KeyEvent.ACTION_DOWN, keyCode, 0));
+        webView.dispatchKeyEvent(new KeyEvent(time, time, KeyEvent.ACTION_UP, keyCode, 0));
+        return true;
+    }
+
+    private void insertRemoteText(String text) {
+        String escapedValue = JSONObject.quote(text);
+        String js = "(() => {" +
+                "const el=document.activeElement;" +
+                "if(!el||el.type==='password')return false;" +
+                "const editable=el.tagName==='INPUT'||el.tagName==='TEXTAREA'||el.isContentEditable;" +
+                "if(!editable)return false;" +
+                "el.dispatchEvent(new InputEvent('beforeinput',{bubbles:true,inputType:'insertText',data:"
+                + escapedValue + "}));" +
+                "if(el.isContentEditable){document.execCommand('insertText',false," + escapedValue + ");}" +
+                "else{const start=el.selectionStart??el.value.length;const end=el.selectionEnd??start;" +
+                "const next=el.value.slice(0,start)+" + escapedValue + "+el.value.slice(end);" +
+                "const setter=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el),'value')?.set;" +
+                "if(setter)setter.call(el,next);else el.value=next;" +
+                "const caret=start+" + text.length() + ";el.setSelectionRange(caret,caret);}" +
+                "el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:"
+                + escapedValue + "}));return true;})()";
+        webView.evaluateJavascript(js, null);
+    }
+
+    private void sendRemoteAck(String commandId, boolean success, String message) {
+        if (remoteClient == null || commandId == null || commandId.isEmpty()) {
+            return;
+        }
+        try {
+            JSONObject ack = new JSONObject();
+            ack.put("commandId", commandId);
+            ack.put("success", success);
+            ack.put("message", message);
+            remoteClient.sendEvent("ack", ack.toString());
+        } catch (Exception error) {
+            Log.w("MainActivity", "Failed to create remote acknowledgement", error);
+        }
+    }
+
+    private void sendRemotePageStatus() {
+        if (remoteClient == null || webView == null) {
+            return;
+        }
+        try {
+            JSONObject status = new JSONObject();
+            status.put("url", webView.getUrl() == null ? "" : webView.getUrl());
+            status.put("title", webView.getTitle() == null ? "" : webView.getTitle());
+            status.put("loading", progressBar != null && progressBar.getVisibility() == View.VISIBLE);
+            status.put("canGoBack", webView.canGoBack());
+            status.put("canGoForward", webView.canGoForward());
+            status.put("viewportWidth", webView.getWidth());
+            status.put("viewportHeight", webView.getHeight());
+            remoteClient.sendEvent("status", status.toString());
+        } catch (Exception error) {
+            Log.w("MainActivity", "Failed to create remote page status", error);
         }
     }
 }

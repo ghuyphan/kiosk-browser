@@ -18,6 +18,8 @@ Download the latest installable APK from the
 - Smooth expanding address field with a one-tap clear action
 - Pull down anywhere to reveal controls; at the top, pull farther to refresh
 - Back, forward, reload, home, share, find-in-page, and desktop-site controls
+- Authenticated remote touchpad, direct touch, scrolling, navigation, and keyboard control
+- Two-way remote connection status, command acknowledgements, and page-state reporting
 - JavaScript, cookies, DOM storage, authenticated downloads, and file uploads
 - Camera, microphone, and location permission support for websites
 - HTTP support for private-LAN QMS installations
@@ -50,6 +52,11 @@ signing block in `app/build.gradle`, then run `./gradlew assembleRelease`.
 3. Enter the QMS website URL.
 4. Choose whether to use fullscreen, request desktop pages, or keep the screen awake.
 5. Tap **Save settings**.
+
+To control the visible website from another device, open **Remote control** from
+the browser menu, enable the service, and scan its QR code. The controller can
+move a visible cursor, click, scroll, navigate, and type into the focused field
+without streaming the kiosk screen.
 
 When the toolbar is hidden, pull down anywhere on the page to reveal it. When
 the page is already at the top, pull farther and release to refresh.
