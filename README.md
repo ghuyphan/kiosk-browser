@@ -24,10 +24,11 @@ Download the latest installable APK from the
 - Camera, microphone, and location permission support for websites
 - HTTPS-only security policy (cleartext HTTP navigation is blocked)
 - Automated session clearing policies (Never, App Start, Touch Inactivity, Daily)
-- Native secure HTTP Basic Auth over HTTPS with secure credential storage
+- Android Autofill integration for website forms on Android 8.0 and newer
+- Native HTTP Basic Auth over HTTPS with encrypted credential storage
 - OIDC/SAML redirect and popup login flows via secure dialogs with an identity allowlist
-- Optional Android screen pinning, startup-domain restriction, external-app
-  blocking, screenshot protection, fullscreen, and keep-awake controls
+- Startup-domain restriction, external-app blocking, screenshot protection,
+  fullscreen, and keep-awake controls
 - Android 6.0 (API 23) through current Android versions
 - No ads, analytics, accounts, or third-party runtime dependencies
 
@@ -59,7 +60,14 @@ signing block in `app/build.gradle`, then run `./gradlew assembleRelease`.
 To control the visible website from another device, open **Remote control** from
 the browser menu, enable the service, and scan its QR code. The controller can
 move a visible cursor, click, scroll, navigate, and type into the focused field
-without streaming the kiosk screen.
+without streaming the kiosk screen. Pairing credentials are encrypted on the
+kiosk, and the controller link is pinned to an immutable audited revision.
+
+The **Autofill credentials** setting allows Android's configured autofill
+service or password manager to fill compatible website forms on Android 8.0
+and newer. Kiosk Browser does not maintain its own password database for HTML
+forms. HTTP Basic Auth credentials remembered through the native sign-in dialog
+are stored separately and can be removed with **Clear saved credentials**.
 
 When the toolbar is hidden, pull down anywhere on the page to reveal it. When
 the page is already at the top, pull farther and release to refresh.

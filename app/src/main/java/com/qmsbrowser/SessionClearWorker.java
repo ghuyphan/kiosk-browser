@@ -5,6 +5,7 @@ import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
+import java.util.concurrent.TimeUnit;
 
 public final class SessionClearWorker extends Worker {
     private static final String TAG = "SessionClearWorker";
@@ -20,10 +21,13 @@ public final class SessionClearWorker extends Worker {
         Context ctx = getApplicationContext();
         
         try {
-            // Clear cookies and web storage
-            BrowserSessionManager.getInstance().clearSession(ctx, null, () -> {
-                Log.d(TAG, "Background session clearing completed");
-            });
+            boolean cleared = BrowserSessionManager.getInstance()
+                    .clearSessionBlocking(ctx, 30, TimeUnit.SECONDS);
+            if (!cleared) {
+                Log.w(TAG, "Session clearing did not complete before timeout");
+                return Result.retry();
+            }
+            Log.d(TAG, "Background session clearing completed");
 
             // Re-schedule daily clearing if active
             String policy = BrowserPreferences.get(ctx).getString(BrowserPreferences.SESSION_CLEAR_POLICY, "never");

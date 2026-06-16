@@ -15,6 +15,7 @@ import androidx.work.OneTimeWorkRequest;
 import androidx.work.WorkManager;
 
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CountDownLatch;
 
 public final class BrowserSessionManager {
     private static final String TAG = "BrowserSessionManager";
@@ -97,6 +98,32 @@ public final class BrowserSessionManager {
      * Clears all session data: cookies, web storage, cache, history, HTTP-auth, and SSL preferences.
      */
     public void clearSession(Context context, WebView activeWebView, Runnable onComplete) {
+        Context appContext = context.getApplicationContext();
+        WebView requestedWebView = activeWebView;
+        Handler mainHandler = new Handler(Looper.getMainLooper());
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            clearSessionOnMain(appContext, requestedWebView, onComplete);
+        } else {
+            mainHandler.post(() -> clearSessionOnMain(
+                    appContext,
+                    requestedWebView,
+                    onComplete
+            ));
+        }
+    }
+
+    public boolean clearSessionBlocking(Context context, long timeout, TimeUnit unit) {
+        CountDownLatch completion = new CountDownLatch(1);
+        clearSession(context, null, completion::countDown);
+        try {
+            return completion.await(timeout, unit);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private void clearSessionOnMain(Context context, WebView activeWebView, Runnable onComplete) {
         Log.d(TAG, "Starting clearSession");
         
         if (activeWebView == null) {
@@ -138,13 +165,13 @@ public final class BrowserSessionManager {
                 cookieManager.flush();
                 Log.d(TAG, "All cookies removed. Flush completed.");
                 if (onComplete != null) {
-                    new Handler(Looper.getMainLooper()).post(onComplete);
+                    onComplete.run();
                 }
             });
         } catch (Exception e) {
             Log.e(TAG, "Error clearing cookies", e);
             if (onComplete != null) {
-                new Handler(Looper.getMainLooper()).post(onComplete);
+                onComplete.run();
             }
         }
     }

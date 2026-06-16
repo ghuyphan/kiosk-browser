@@ -342,6 +342,8 @@ public class SettingsActivity extends Activity {
         LinearLayout actionCard = card();
         actionCard.addView(cardHeader(R.drawable.ic_close, "Reset options", colorViolet));
         actionCard.addView(actionRow(R.drawable.ic_trash, colorViolet, "Clear browser data", "Clears cache, history, cookies, and storage", () -> confirmClearData(), Color.rgb(229, 231, 235)));
+        actionCard.addView(divider());
+        actionCard.addView(actionRow(R.drawable.ic_key, colorViolet, "Clear saved credentials", "Removes remembered HTTP Basic Auth usernames and passwords", () -> confirmClearCredentials(), Color.rgb(229, 231, 235)));
         form.addView(actionCard, cardParams());
 
         // Sticky Bottom Bar
@@ -858,6 +860,22 @@ public class SettingsActivity extends Activity {
         lp.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;
         dialog.show();
         dialog.getWindow().setAttributes(lp);
+    }
+
+    private void confirmClearCredentials() {
+        new AlertDialog.Builder(this)
+                .setTitle("Clear saved credentials?")
+                .setMessage("This removes usernames and passwords remembered by HTTP Basic Auth. Website passwords stored by Android Autofill are managed by your password manager.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Clear credentials", (dialog, which) -> {
+                    boolean cleared = new CredentialStore(this).clearAll();
+                    Toast.makeText(
+                            this,
+                            cleared ? "Saved credentials cleared" : "Secure credential storage unavailable",
+                            Toast.LENGTH_SHORT
+                    ).show();
+                })
+                .show();
     }
 
     private void showPolicyDialog() {

@@ -8,15 +8,12 @@ import com.google.zxing.common.BitMatrix;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.ActivityManager;
 import android.app.AlertDialog;
-import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -26,7 +23,6 @@ import android.content.res.ColorStateList;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -47,11 +43,10 @@ import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.webkit.CookieManager;
-import android.webkit.DownloadListener;
 import android.webkit.GeolocationPermissions;
 import android.webkit.PermissionRequest;
+import android.webkit.SafeBrowsingResponse;
 import android.webkit.SslErrorHandler;
-import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -75,10 +70,6 @@ import android.animation.ValueAnimator;
 import android.animation.AnimatorListenerAdapter;
 import android.view.animation.LinearInterpolator;
 import android.view.animation.DecelerateInterpolator;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.security.SecureRandom;
 
 import org.json.JSONObject;
 
@@ -106,14 +97,11 @@ public class MainActivity extends Activity {
     private EditText addressBar;
     private ProgressBar progressBar;
     private FrameLayout pullIndicator;
+    private BrowserErrorView browserErrorView;
     private ImageView pullIndicatorIcon;
     private ObjectAnimator reloadAnimator;
     private ObjectAnimator pullIndicatorAnimator;
     private ValueCallback<Uri[]> fileCallback;
-    private PermissionRequest webPermissionRequest;
-    private GeolocationPermissions.Callback geolocationCallback;
-    private String geolocationOrigin;
-    private PendingDownload pendingDownload;
     private View customView;
     private WebChromeClient.CustomViewCallback customViewCallback;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
@@ -135,13 +123,13 @@ public class MainActivity extends Activity {
     private EditText findInput;
     private TextView findStatus;
     private RemoteControlClient remoteClient;
+    private RemotePairingStore remotePairingStore;
     private String remoteControlTopic;
     private String remoteControlSecret;
+    private boolean remotePairingPersistent;
     private AlertDialog remoteControlDialog;
     private float remotePointerX;
     private float remotePointerY;
-    private String pendingWebPermissionOrigin;
-    private String[] pendingWebPermissionResources;
     
     // Phase 1: Recovery and state tracking
     private BrowserRecoveryController recoveryController;
@@ -161,20 +149,12 @@ public class MainActivity extends Activity {
         setTheme(R.style.AppTheme);
         super.onCreate(savedInstanceState);
         
-        SharedPreferences prefs = BrowserPreferences.get(this);
-        remoteControlTopic = prefs.getString("remote_control_topic", null);
-        remoteControlSecret = prefs.getString("remote_control_secret", null);
-        if (remoteControlTopic == null || remoteControlTopic.length() < 32
-                || remoteControlSecret == null || remoteControlSecret.length() < 43) {
-            remoteControlTopic = "qms-kiosk-" + randomToken(24);
-            remoteControlSecret = randomToken(32);
-            prefs.edit()
-                    .putString("remote_control_topic", remoteControlTopic)
-                    .putString("remote_control_secret", remoteControlSecret)
-                    .apply();
-        }
-        boolean remoteEnabled = prefs.getBoolean("remote_control_enabled", false);
-        if (remoteEnabled) {
+        remotePairingStore = new RemotePairingStore(this);
+        RemotePairingStore.Pairing pairing = remotePairingStore.loadOrCreate();
+        remoteControlTopic = pairing.topic;
+        remoteControlSecret = pairing.secret;
+        remotePairingPersistent = pairing.persistent;
+        if (pairing.enabled) {
             remoteClient = createRemoteClient();
             remoteClient.start();
         }
@@ -319,6 +299,17 @@ public class MainActivity extends Activity {
         BrowserSessionManager.getInstance().setActiveWebView(webView);
         configureWebView();
         webViewContainer.addView(webView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+
+        browserErrorView = new BrowserErrorView(this, () -> {
+            browserErrorView.hideError();
+            if (webView != null) {
+                webView.reload();
+            }
+        });
+        webViewContainer.addView(browserErrorView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
         ));
@@ -646,7 +637,9 @@ public class MainActivity extends Activity {
             }
         });
         if (downloadController != null) {
-            webView.setDownloadListener(downloadController.createDownloadListener());
+            webView.setDownloadListener(downloadController.createDownloadListener(
+                    this::isAllowedKioskHost
+            ));
         }
         webView.setOnHoverListener((view, event) -> {
             if (event.getActionMasked() == MotionEvent.ACTION_HOVER_MOVE
@@ -722,17 +715,6 @@ public class MainActivity extends Activity {
 
         // Default to Google search
         return "https://www.google.com/search?q=" + Uri.encode(value);
-    }
-
-    private static String randomToken(int byteCount) {
-        byte[] bytes = new byte[byteCount];
-        new SecureRandom().nextBytes(bytes);
-        return android.util.Base64.encodeToString(
-                bytes,
-                android.util.Base64.URL_SAFE
-                        | android.util.Base64.NO_PADDING
-                        | android.util.Base64.NO_WRAP
-        );
     }
 
     private boolean navigateTo(String url, boolean showError) {
@@ -971,20 +953,10 @@ public class MainActivity extends Activity {
     }
 
     private boolean isAllowedKioskHost(Uri uri) {
-        if (uri == null) return false;
-        String host = uri.getHost();
-        if (host == null) return false;
-        
-        // Check IDP allowlist first
-        String allowlist = BrowserPreferences.get(this).getString(BrowserPreferences.IDP_ALLOWLIST, "");
-        if (SecurityPolicy.isHostInAllowlist(host, allowlist)) {
-            return true;
-        }
-
-        Uri startUri = Uri.parse(configuredStartUrl);
-        return SecurityPolicy.isAllowedKioskHost(
-                host,
-                startUri.getHost(),
+        return NavigationPolicy.isAllowedKioskHost(
+                this,
+                uri,
+                configuredStartUrl,
                 restrictToStartHost
         );
     }
@@ -1542,13 +1514,15 @@ public class MainActivity extends Activity {
             try {
                 Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
                 if (intent != null) {
+                    intent.setComponent(null);
+                    intent.setSelector(null);
+                    intent.addCategory(Intent.CATEGORY_BROWSABLE);
                     if (getPackageManager().resolveActivity(intent, 0) != null) {
                         startActivity(intent);
                         return true;
                     }
                     String fallbackUrl = intent.getStringExtra("browser_fallback_url");
-                    if (fallbackUrl != null && fallbackUrl.startsWith("https://")) {
-                        webView.loadUrl(fallbackUrl);
+                    if (fallbackUrl != null && navigateTo(fallbackUrl, true)) {
                         return true;
                     }
                 }
@@ -1608,6 +1582,9 @@ public class MainActivity extends Activity {
         @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
             hasLoadError = false;
+            if (browserErrorView != null) {
+                browserErrorView.hideError();
+            }
             BrowserSessionManager.getInstance().setCurrentUrl(url);
             Uri uri = Uri.parse(url);
             if (("http".equalsIgnoreCase(uri.getScheme())
@@ -1648,6 +1625,9 @@ public class MainActivity extends Activity {
                 isRefreshing = false;
             }
             if (!hasLoadError) {
+                if (browserErrorView != null) {
+                    browserErrorView.hideError();
+                }
                 BrowserSessionManager.getInstance().setLastSuccessfulUrl(MainActivity.this, url);
                 if (recoveryController != null) {
                     recoveryController.handlePagePageFinished();
@@ -1670,6 +1650,13 @@ public class MainActivity extends Activity {
                         "Page failed to load: " + error.getDescription(),
                         Toast.LENGTH_LONG
                 ).show();
+                if (browserErrorView != null) {
+                    browserErrorView.showError(
+                            "Check the network connection and try again.\n\n"
+                                    + error.getDescription(),
+                            true
+                    );
+                }
                 if (isRefreshing) {
                     hidePullIndicator();
                     isRefreshing = false;
@@ -1693,8 +1680,32 @@ public class MainActivity extends Activity {
                     "Blocked an invalid HTTPS certificate",
                     Toast.LENGTH_LONG
             ).show();
+            if (browserErrorView != null) {
+                browserErrorView.showError(
+                        "The website's security certificate is invalid. The connection was blocked.",
+                        true
+                );
+            }
             if (recoveryController != null) {
                 recoveryController.handleNetworkFailure();
+            }
+        }
+
+        @android.annotation.TargetApi(Build.VERSION_CODES.O_MR1)
+        @Override
+        public void onSafeBrowsingHit(
+                WebView view,
+                WebResourceRequest request,
+                int threatType,
+                SafeBrowsingResponse callback
+        ) {
+            callback.backToSafety(true);
+            hasLoadError = true;
+            if (browserErrorView != null) {
+                browserErrorView.showError(
+                        "Android Safe Browsing identified this website as unsafe.",
+                        false
+                );
             }
         }
 
@@ -1853,6 +1864,23 @@ public class MainActivity extends Activity {
                 }
 
                 @Override
+                public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                    Uri uri = Uri.parse(url);
+                    if ("about".equalsIgnoreCase(uri.getScheme())
+                            && "blank".equalsIgnoreCase(uri.getSchemeSpecificPart())) {
+                        return;
+                    }
+                    if (!SecurityPolicy.isAllowedWebUrl(url) || !isAllowedKioskHost(uri)) {
+                        view.stopLoading();
+                        Toast.makeText(
+                                MainActivity.this,
+                                "Popup navigation was blocked by kiosk policy",
+                                Toast.LENGTH_SHORT
+                        ).show();
+                    }
+                }
+
+                @Override
                 public void onReceivedHttpAuthRequest(WebView view, android.webkit.HttpAuthHandler handler, String host, String realm) {
                     if (authController != null) {
                         authController.handleHttpAuthRequest(view, handler, host, realm);
@@ -1891,11 +1919,10 @@ public class MainActivity extends Activity {
         private void applyPopupWebViewSettings(WebView popup) {
             WebSettings settings = popup.getSettings();
             WebSettings mainSettings = webView.getSettings();
-            settings.setJavaScriptEnabled(mainSettings.getJavaScriptEnabled());
-            settings.setDomStorageEnabled(mainSettings.getDomStorageEnabled());
-            settings.setDatabaseEnabled(mainSettings.getDatabaseEnabled());
-            settings.setSupportMultipleWindows(true);
-            settings.setJavaScriptCanOpenWindowsAutomatically(mainSettings.getJavaScriptCanOpenWindowsAutomatically());
+            boolean autofill = BrowserPreferences.get(MainActivity.this)
+                    .getBoolean(BrowserPreferences.AUTOFILL_ENABLED, true);
+            WebViewConfigurator.configurePopupSettings(popup, autofill);
+            settings.setUserAgentString(mainSettings.getUserAgentString());
             
             boolean acceptThirdParty = BrowserPreferences.get(MainActivity.this).getBoolean(BrowserPreferences.THIRD_PARTY_COOKIES_ENABLED, false);
             CookieManager.getInstance().setAcceptThirdPartyCookies(popup, acceptThirdParty);
@@ -1924,24 +1951,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private static final class PendingDownload {
-        final String url;
-        final String userAgent;
-        final String contentDisposition;
-        final String mimeType;
-
-        PendingDownload(
-                String url,
-                String userAgent,
-                String contentDisposition,
-                String mimeType
-        ) {
-            this.url = url;
-            this.userAgent = userAgent;
-            this.contentDisposition = contentDisposition;
-            this.mimeType = mimeType;
-        }
-    }
     private void showSecurityDialog() {
         String url = webView.getUrl();
         String host = url != null ? Uri.parse(url).getHost() : "";
@@ -2061,6 +2070,7 @@ public class MainActivity extends Activity {
 
         Switch remoteSwitch = new Switch(this);
         remoteSwitch.setChecked(remoteClient != null && remoteClient.isRunning());
+        remoteSwitch.setEnabled(remotePairingPersistent);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             int[][] states = new int[][] {
                 new int[] {-android.R.attr.state_checked},
@@ -2105,10 +2115,10 @@ public class MainActivity extends Activity {
         qrImage.setVisibility(View.GONE);
         qrContainer.addView(qrImage);
 
-        final String controllerUrl =
-                "https://raw.githack.com/ghuyphan/kiosk-browser/main/remote.html"
-                        + "#topic=" + Uri.encode(remoteControlTopic)
-                        + "&secret=" + Uri.encode(remoteControlSecret);
+        final String controllerUrl = RemoteControllerLink.create(
+                remoteControlTopic,
+                remoteControlSecret
+        );
 
         TextView qrHint = new TextView(this);
         qrHint.setText("Scan with the other device");
@@ -2211,8 +2221,17 @@ public class MainActivity extends Activity {
 
         // Switch toggle behavior
         remoteSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            SharedPreferences.Editor editor = BrowserPreferences.get(MainActivity.this).edit();
-            editor.putBoolean("remote_control_enabled", isChecked).apply();
+            if (!remotePairingStore.setEnabled(isChecked)) {
+                if (isChecked) {
+                    buttonView.setChecked(false);
+                }
+                Toast.makeText(
+                        MainActivity.this,
+                        "Secure pairing storage is unavailable",
+                        Toast.LENGTH_LONG
+                ).show();
+                return;
+            }
 
             if (isChecked) {
                 qrContainer.setVisibility(View.VISIBLE);
@@ -2259,14 +2278,11 @@ public class MainActivity extends Activity {
         if (remoteCursor != null) {
             remoteCursor.setVisibility(View.GONE);
         }
-        remoteControlTopic = "qms-kiosk-" + randomToken(24);
-        remoteControlSecret = randomToken(32);
-        BrowserPreferences.get(this).edit()
-                .putString("remote_control_topic", remoteControlTopic)
-                .putString("remote_control_secret", remoteControlSecret)
-                .putBoolean("remote_control_enabled", restart)
-                .apply();
-        if (restart) {
+        RemotePairingStore.Pairing pairing = remotePairingStore.rotate(restart);
+        remoteControlTopic = pairing.topic;
+        remoteControlSecret = pairing.secret;
+        remotePairingPersistent = pairing.persistent;
+        if (restart && pairing.enabled) {
             remoteClient = createRemoteClient();
             remoteClient.start();
         }
@@ -2369,19 +2385,7 @@ public class MainActivity extends Activity {
     }
 
     private boolean isRemoteControllerUrl(String value) {
-        if (value == null) {
-            return false;
-        }
-        Uri uri = Uri.parse(value);
-        String fragment = uri.getFragment();
-        if (fragment == null || uri.getPath() == null
-                || !uri.getPath().endsWith("/remote.html")) {
-            return false;
-        }
-        android.net.UrlQuerySanitizer sanitizer = new android.net.UrlQuerySanitizer();
-        sanitizer.setAllowUnregisteredParamaters(true);
-        sanitizer.parseQuery(fragment);
-        return sanitizer.getValue("topic") != null && sanitizer.getValue("secret") != null;
+        return RemoteControllerLink.isValid(value);
     }
 
     private void openNativeRemoteController(String controllerUrl) {

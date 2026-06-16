@@ -14,6 +14,10 @@ import android.webkit.URLUtil;
 import android.widget.Toast;
 
 public final class DownloadController {
+    public interface UrlPolicy {
+        boolean isAllowed(Uri uri);
+    }
+
     private final Activity activity;
     private PendingDownload pendingDownload;
 
@@ -35,9 +39,10 @@ public final class DownloadController {
         this.activity = activity;
     }
 
-    public DownloadListener createDownloadListener() {
+    public DownloadListener createDownloadListener(UrlPolicy allowedUri) {
         return (url, userAgent, contentDisposition, mimeType, contentLength) -> {
-            if (!SecurityPolicy.isAllowedWebUrl(url)) {
+            Uri uri = Uri.parse(url);
+            if (!SecurityPolicy.isAllowedWebUrl(url) || !allowedUri.isAllowed(uri)) {
                 Toast.makeText(activity, "Blocked an unsafe download URL", Toast.LENGTH_LONG).show();
                 return;
             }

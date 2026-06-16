@@ -2,7 +2,6 @@ package com.qmsbrowser;
 
 import android.app.AlertDialog;
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -22,37 +21,16 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.security.crypto.EncryptedSharedPreferences;
-import androidx.security.crypto.MasterKey;
-
-import java.net.URL;
-
 public final class AuthenticationController {
     private static final String TAG = "AuthenticationController";
-    private static final String SECURE_PREFS_FILE = "secure_basic_auth_prefs";
 
     private final Context context;
-    private SharedPreferences securePrefs;
+    private final CredentialStore credentialStore;
     private String lastAttemptedKey;
 
     public AuthenticationController(Context context) {
         this.context = context.getApplicationContext();
-        try {
-            MasterKey masterKey = new MasterKey.Builder(this.context)
-                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                    .build();
-            this.securePrefs = EncryptedSharedPreferences.create(
-                    this.context,
-                    SECURE_PREFS_FILE,
-                    masterKey,
-                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            );
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to initialize EncryptedSharedPreferences, falling back to standard private preferences", e);
-            // Fallback to regular private prefs if keystore is broken
-            this.securePrefs = this.context.getSharedPreferences(SECURE_PREFS_FILE, Context.MODE_PRIVATE);
-        }
+        credentialStore = new CredentialStore(this.context);
     }
 
     public void handleHttpAuthRequest(final WebView view, final HttpAuthHandler handler, final String host, final String realm) {
@@ -76,8 +54,8 @@ public final class AuthenticationController {
         }
 
         // 3. Attempt automatic login if credentials are saved
-        String savedUser = securePrefs.getString(authKey + "_user", null);
-        String savedPass = securePrefs.getString(authKey + "_pass", null);
+        String savedUser = credentialStore.username(authKey);
+        String savedPass = credentialStore.password(authKey);
         
         if (savedUser != null && savedPass != null && lastAttemptedKey == null) {
             Log.d(TAG, "Using saved credentials for " + authKey);
@@ -144,6 +122,10 @@ public final class AuthenticationController {
         rememberCheck.setButtonTintList(ColorStateList.valueOf(Color.rgb(124, 58, 237)));
         rememberCheck.setTextSize(14);
         rememberCheck.setPadding(dp(dialogContext, 4), 0, 0, 0);
+        rememberCheck.setEnabled(credentialStore.isAvailable());
+        if (!credentialStore.isAvailable()) {
+            rememberCheck.setText("Secure credential storage unavailable");
+        }
         LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -188,7 +170,9 @@ public final class AuthenticationController {
             }
             
             if (rememberCheck.isChecked()) {
-                saveCredentials(authKey, user, pass);
+                if (!credentialStore.save(authKey, user, pass)) {
+                    Toast.makeText(context, "Credentials could not be saved securely", Toast.LENGTH_LONG).show();
+                }
             } else {
                 clearCredentials(authKey);
             }
@@ -201,18 +185,8 @@ public final class AuthenticationController {
         dialog.show();
     }
 
-    private void saveCredentials(String authKey, String username, String password) {
-        securePrefs.edit()
-                .putString(authKey + "_user", username)
-                .putString(authKey + "_pass", password)
-                .apply();
-    }
-
     private void clearCredentials(String authKey) {
-        securePrefs.edit()
-                .remove(authKey + "_user")
-                .remove(authKey + "_pass")
-                .apply();
+        credentialStore.clear(authKey);
     }
 
     private int dp(Context ctx, int value) {
